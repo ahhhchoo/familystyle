@@ -6,6 +6,7 @@ import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, addDoc, s
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import GoalItem from '@/components/GoalItem';
+import AnimatedNumber from '@/components/AnimatedNumber';
 import { User, Goal, DailyCheckIn } from '@/types';
 
 type DayStatus = 'complete' | 'partial' | 'none' | 'future';
@@ -272,15 +273,32 @@ export default function MemberPage({ params }: PageProps) {
   const completedDays = Array.from(dayStatuses.values()).filter(s => s === 'complete').length;
   const successRate = dayOfYear > 0 ? Math.round((completedDays / dayOfYear) * 100) : 0;
 
+  const columns = 20;
+
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="animate-pulse text-white text-xl">Loading...</div>
+      <div className="min-h-screen bg-black px-4 pt-16 pb-8">
+        {/* Skeleton Header */}
+        <header className="flex items-center justify-between mb-4">
+          <div className="skeleton w-12 h-12 rounded-full" />
+          <div className="skeleton w-12 h-12 rounded-full" />
+        </header>
+
+        {/* Skeleton Name */}
+        <div className="mb-6">
+          <div className="skeleton h-10 w-40 rounded-lg mb-2" />
+          <div className="skeleton h-4 w-32 rounded" />
+        </div>
+
+        {/* Skeleton Goals */}
+        <div className="flex flex-col gap-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton h-20 rounded-2xl" />
+          ))}
+        </div>
       </div>
     );
   }
-
-  const columns = 20;
 
   return (
     <div className="h-screen overflow-y-auto snap-y snap-mandatory bg-black">
@@ -376,10 +394,14 @@ export default function MemberPage({ params }: PageProps) {
       <section className="min-h-screen snap-start px-5 pt-24 pb-8">
         {/* Header */}
         <header className="mb-8">
-          <h1 className="text-5xl font-bold text-white">{successRate}%</h1>
+          <h1 className="text-5xl font-bold text-white">
+            <AnimatedNumber value={successRate} suffix="%" />
+          </h1>
           <div className="flex items-center justify-between mt-1">
             <p className="text-[var(--gray-text)] text-sm">your success rate</p>
-            <p className="text-white font-medium">{completedDays} days complete</p>
+            <p className="text-white font-medium">
+              <AnimatedNumber value={completedDays} /> days complete
+            </p>
           </div>
         </header>
 
@@ -410,7 +432,7 @@ export default function MemberPage({ params }: PageProps) {
               <div
                 key={dateKey}
                 className={`aspect-square rounded-full transition-colors ${bgColor}
-                  ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black' : ''}
+                  ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black animate-pulse-slow' : ''}
                 `}
                 title={`${dateKey}: ${status}`}
               />

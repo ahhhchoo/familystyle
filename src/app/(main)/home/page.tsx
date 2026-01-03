@@ -239,8 +239,24 @@ export default function HomePage() {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="animate-pulse text-white text-xl">Loading...</div>
+      <div className="min-h-screen bg-black px-4 pt-16 pb-8">
+        {/* Skeleton Header */}
+        <header className="mb-8">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="skeleton h-10 w-48 rounded-lg mb-2" />
+              <div className="skeleton h-4 w-32 rounded" />
+            </div>
+            <div className="skeleton w-12 h-12 rounded-full" />
+          </div>
+        </header>
+
+        {/* Skeleton Grid */}
+        <div className="grid grid-cols-2 gap-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="skeleton h-48 rounded-3xl" />
+          ))}
+        </div>
       </div>
     );
   }

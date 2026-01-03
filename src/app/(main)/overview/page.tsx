@@ -7,6 +7,7 @@ import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firesto
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { DailyCheckIn, Goal } from '@/types';
+import AnimatedNumber from '@/components/AnimatedNumber';
 
 type DayStatus = 'complete' | 'partial' | 'none' | 'future';
 
@@ -277,7 +278,9 @@ export default function OverviewPage() {
     <div {...swipeHandlers} className="min-h-screen bg-black px-5 pt-24 pb-8">
       {/* Header */}
       <header className="mb-8">
-        <h1 className="text-5xl font-bold text-white">{successRate}%</h1>
+        <h1 className="text-5xl font-bold text-white">
+          <AnimatedNumber value={successRate} suffix="%" />
+        </h1>
         <div className="flex items-center justify-between mt-1">
           <p className="text-[var(--gray-text)] text-sm">family success rate</p>
           <p className="text-white font-medium">{daysRemaining} more days</p>
@@ -311,7 +314,7 @@ export default function OverviewPage() {
             <div
               key={dateKey}
               className={`aspect-square rounded-full transition-colors ${bgColor}
-                ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black' : ''}
+                ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black animate-pulse-slow' : ''}
               `}
               title={`${dateKey}: ${status}`}
             />

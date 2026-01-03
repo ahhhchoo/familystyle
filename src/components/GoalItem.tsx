@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { GoalFrequency } from '@/types';
 
 interface GoalItemProps {
@@ -23,6 +24,18 @@ export default function GoalItem({
 }: GoalItemProps) {
   const isWeekly = frequency === 'weekly';
   const weeklyComplete = isWeekly && weeklyTarget && weeklyProgress >= weeklyTarget;
+  const [isPulsing, setIsPulsing] = useState(false);
+  const [prevCompleted, setPrevCompleted] = useState(completed);
+
+  // Trigger pulse animation when completed changes to true
+  useEffect(() => {
+    if (completed && !prevCompleted) {
+      setIsPulsing(true);
+      const timer = setTimeout(() => setIsPulsing(false), 400);
+      return () => clearTimeout(timer);
+    }
+    setPrevCompleted(completed);
+  }, [completed, prevCompleted]);
 
   return (
     <button
@@ -42,25 +55,52 @@ export default function GoalItem({
         )}
       </div>
       
-      {/* Status Icon */}
+      {/* Status Icon with pulse animation */}
       <div
-        className={`w-11 h-11 rounded-full flex items-center justify-center transition-colors
+        className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300
           ${completed ? 'bg-[var(--orange)]' : 'bg-[var(--gray-card)]'}
-          ${isWeekly && weeklyComplete ? 'ring-2 ring-[var(--green)]' : ''}`}
+          ${isWeekly && weeklyComplete ? 'ring-2 ring-[var(--green)]' : ''}
+          ${isPulsing ? 'scale-125' : 'scale-100'}`}
+        style={{
+          boxShadow: isPulsing ? '0 0 20px rgba(245, 165, 36, 0.5)' : 'none',
+        }}
       >
-        {/* Smiley face icon */}
-        <svg 
-          className={`w-6 h-6 ${completed ? 'text-white' : 'text-[var(--gray-text)]'}`} 
-          fill="none" 
-          viewBox="0 0 24 24" 
-          stroke="currentColor" 
-          strokeWidth={2}
-        >
-          <circle cx="12" cy="12" r="10" />
-          <circle cx="9" cy="10" r="1" fill="currentColor" />
-          <circle cx="15" cy="10" r="1" fill="currentColor" />
-          <path strokeLinecap="round" d="M8 14s1.5 2 4 2 4-2 4-2" />
-        </svg>
+        {completed ? (
+          /* Animated checkmark */
+          <svg 
+            className="w-6 h-6 text-white"
+            viewBox="0 0 24 24" 
+            fill="none"
+            stroke="currentColor" 
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path 
+              d="M5 13l4 4L19 7"
+              className={completed ? 'animate-draw-check' : ''}
+              style={{
+                strokeDasharray: 24,
+                strokeDashoffset: completed ? 0 : 24,
+                transition: 'stroke-dashoffset 0.3s ease-out',
+              }}
+            />
+          </svg>
+        ) : (
+          /* Smiley face icon when not completed */
+          <svg 
+            className="w-6 h-6 text-[var(--gray-text)]"
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={2}
+          >
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="9" cy="10" r="1" fill="currentColor" />
+            <circle cx="15" cy="10" r="1" fill="currentColor" />
+            <path strokeLinecap="round" d="M8 14s1.5 2 4 2 4-2 4-2" />
+          </svg>
+        )}
       </div>
     </button>
   );
