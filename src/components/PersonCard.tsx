@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { FamilyMemberStatus } from '@/types';
 
@@ -9,7 +10,7 @@ interface PersonCardProps {
   onClick?: () => void;
 }
 
-// Static progress ring component (no animation)
+// Animated progress ring component
 function ProgressRing({ 
   progress, 
   size = 48, 
@@ -19,9 +20,34 @@ function ProgressRing({
   size?: number; 
   strokeWidth?: number;
 }) {
+  const [animatedProgress, setAnimatedProgress] = useState(0);
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
-  const offset = circumference - (progress / 100) * circumference;
+  const offset = circumference - (animatedProgress / 100) * circumference;
+
+  // Animate progress changes
+  useEffect(() => {
+    const duration = 500; // ms
+    const startProgress = animatedProgress;
+    const endProgress = progress;
+    const startTime = Date.now();
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = startProgress + (endProgress - startProgress) * eased;
+      
+      setAnimatedProgress(current);
+      
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [progress]);
   
   return (
     <svg
@@ -39,7 +65,7 @@ function ProgressRing({
         strokeWidth={strokeWidth}
       />
       {/* Progress circle */}
-      {progress > 0 && (
+      {animatedProgress > 0 && (
         <circle
           cx={size / 2}
           cy={size / 2}
