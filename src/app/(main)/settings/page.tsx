@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayRemove, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Family, User } from '@/types';
@@ -113,15 +113,30 @@ export default function SettingsPage() {
     if (!user?.familyId || !family) return;
 
     try {
+      const batch = writeBatch(db);
+
       // Remove user from family members array
-      await updateDoc(doc(db, 'families', user.familyId), {
+      batch.update(doc(db, 'families', user.familyId), {
         members: arrayRemove(user.uid),
       });
 
       // Remove familyId from user document
-      await updateDoc(doc(db, 'users', user.uid), {
+      batch.update(doc(db, 'users', user.uid), {
         familyId: null,
       });
+
+      // Deactivate all of the user's goals (so they don't affect family stats)
+      const goalsQuery = query(
+        collection(db, 'goals'),
+        where('userId', '==', user.uid),
+        where('familyId', '==', user.familyId)
+      );
+      const goalsSnapshot = await getDocs(goalsQuery);
+      goalsSnapshot.docs.forEach(goalDoc => {
+        batch.update(goalDoc.ref, { isActive: false });
+      });
+
+      await batch.commit();
 
       router.push('/join-family');
     } catch (error) {
@@ -134,15 +149,30 @@ export default function SettingsPage() {
 
     setRemovingMember(true);
     try {
+      const batch = writeBatch(db);
+
       // Remove member from family members array
-      await updateDoc(doc(db, 'families', user.familyId), {
+      batch.update(doc(db, 'families', user.familyId), {
         members: arrayRemove(memberToRemove.uid),
       });
 
       // Remove familyId from the removed user's document
-      await updateDoc(doc(db, 'users', memberToRemove.uid), {
+      batch.update(doc(db, 'users', memberToRemove.uid), {
         familyId: null,
       });
+
+      // Deactivate all of the removed member's goals (so they don't affect family stats)
+      const goalsQuery = query(
+        collection(db, 'goals'),
+        where('userId', '==', memberToRemove.uid),
+        where('familyId', '==', user.familyId)
+      );
+      const goalsSnapshot = await getDocs(goalsQuery);
+      goalsSnapshot.docs.forEach(goalDoc => {
+        batch.update(goalDoc.ref, { isActive: false });
+      });
+
+      await batch.commit();
 
       // Update local state
       setMembers(members.filter(m => m.uid !== memberToRemove.uid));
