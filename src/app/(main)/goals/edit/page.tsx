@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Goal, GoalFrequency } from '@/types';
@@ -21,6 +21,10 @@ export default function EditGoalsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  
+  // Drag and drop state
+  const [draggedGoalId, setDraggedGoalId] = useState<string | null>(null);
+  const [dragOverGoalId, setDragOverGoalId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -41,6 +45,16 @@ export default function EditGoalsPage() {
         id: doc.id,
         ...doc.data()
       })) as Goal[];
+      // Sort by order field, then by createdAt
+      goalsData.sort((a, b) => {
+        const orderA = a.order ?? 999;
+        const orderB = b.order ?? 999;
+        if (orderA !== orderB) return orderA - orderB;
+        // Fallback to createdAt
+        const timeA = a.createdAt ? (typeof a.createdAt === 'object' && 'seconds' in a.createdAt ? a.createdAt.seconds : 0) : 0;
+        const timeB = b.createdAt ? (typeof b.createdAt === 'object' && 'seconds' in b.createdAt ? b.createdAt.seconds : 0) : 0;
+        return timeA - timeB;
+      });
       setGoals(goalsData);
       setLoading(false);
     });
@@ -53,6 +67,8 @@ export default function EditGoalsPage() {
     
     setSaving(true);
     try {
+      // New goals get added to the end
+      const maxOrder = goals.reduce((max, g) => Math.max(max, g.order ?? 0), 0);
       await addDoc(collection(db, 'goals'), {
         userId: user.uid,
         userName: user.displayName, // Human-readable user name for easier debugging
@@ -61,6 +77,7 @@ export default function EditGoalsPage() {
         createdAt: serverTimestamp(),
         isActive: true,
         frequency: newGoalFrequency,
+        order: maxOrder + 1,
         ...(newGoalFrequency === 'weekly' && { weeklyTarget: newGoalWeeklyTarget }),
       });
       setNewGoalTitle('');
@@ -72,6 +89,71 @@ export default function EditGoalsPage() {
     }
     setSaving(false);
   };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent | React.TouchEvent, goalId: string) => {
+    setDraggedGoalId(goalId);
+    if ('dataTransfer' in e) {
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, goalId: string) => {
+    e.preventDefault();
+    if (goalId !== draggedGoalId) {
+      setDragOverGoalId(goalId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverGoalId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetGoalId: string) => {
+    e.preventDefault();
+    if (!draggedGoalId || draggedGoalId === targetGoalId) {
+      setDraggedGoalId(null);
+      setDragOverGoalId(null);
+      return;
+    }
+
+    await reorderGoals(draggedGoalId, targetGoalId);
+    setDraggedGoalId(null);
+    setDragOverGoalId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedGoalId(null);
+    setDragOverGoalId(null);
+  };
+
+  const reorderGoals = async (draggedId: string, targetId: string) => {
+    const draggedIndex = goals.findIndex(g => g.id === draggedId);
+    const targetIndex = goals.findIndex(g => g.id === targetId);
+    
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Create new order
+    const newGoals = [...goals];
+    const [draggedGoal] = newGoals.splice(draggedIndex, 1);
+    newGoals.splice(targetIndex, 0, draggedGoal);
+
+    // Update local state immediately for responsiveness
+    setGoals(newGoals);
+
+    // Update Firestore with new order values
+    try {
+      const batch = writeBatch(db);
+      newGoals.forEach((goal, index) => {
+        batch.update(doc(db, 'goals', goal.id), { order: index });
+      });
+      await batch.commit();
+    } catch (error) {
+      console.error('Error reordering goals:', error);
+    }
+  };
+
+
 
   const handleUpdateGoal = async (goalId: string) => {
     if (!editingTitle.trim()) return;
@@ -160,7 +242,15 @@ export default function EditGoalsPage() {
         {goals.map((goal) => (
           <div
             key={goal.id}
-            className="w-full bg-[var(--gray-dark)] rounded-2xl px-5 py-4"
+            draggable={editingGoalId !== goal.id}
+            onDragStart={(e) => handleDragStart(e, goal.id)}
+            onDragOver={(e) => handleDragOver(e, goal.id)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, goal.id)}
+            onDragEnd={handleDragEnd}
+            className={`w-full bg-[var(--gray-dark)] rounded-2xl px-5 py-4 transition-all duration-200
+              ${draggedGoalId === goal.id ? 'opacity-50 scale-95' : ''}
+              ${dragOverGoalId === goal.id ? 'ring-2 ring-[var(--orange)] ring-opacity-50' : ''}`}
           >
             {editingGoalId === goal.id ? (
               <div className="flex flex-col gap-4">
@@ -237,11 +327,19 @@ export default function EditGoalsPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {/* Drag handle */}
+                <div className="cursor-grab active:cursor-grabbing touch-none py-2">
+                  <svg className="w-5 h-5 text-[var(--gray-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
+                  </svg>
+                </div>
+                
                 <div className="flex-1">
                   <span className="text-white font-medium">{goal.title}</span>
                   <p className="text-[var(--gray-text)] text-sm">{getFrequencyLabel(goal)}</p>
                 </div>
+                
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => startEditing(goal)}

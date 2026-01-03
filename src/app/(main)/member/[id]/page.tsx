@@ -99,6 +99,16 @@ export default function MemberPage({ params }: PageProps) {
             id: doc.id,
             ...doc.data()
           })) as Goal[];
+          // Sort by order field, then by createdAt
+          goalsData.sort((a, b) => {
+            const orderA = a.order ?? 999;
+            const orderB = b.order ?? 999;
+            if (orderA !== orderB) return orderA - orderB;
+            // Fallback to createdAt
+            const timeA = a.createdAt ? (typeof a.createdAt === 'object' && 'seconds' in a.createdAt ? a.createdAt.seconds : 0) : 0;
+            const timeB = b.createdAt ? (typeof b.createdAt === 'object' && 'seconds' in b.createdAt ? b.createdAt.seconds : 0) : 0;
+            return timeA - timeB;
+          });
           setGoals(goalsData);
         });
 

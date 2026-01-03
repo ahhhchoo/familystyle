@@ -6,7 +6,7 @@ export default function SignInScreen() {
   const { signInWithGoogle, loading, error } = useAuth();
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--orange)] px-6">
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-[var(--orange)] px-6">
       {/* Logo and Tagline */}
       <div className="flex flex-col items-center mb-16">
         <h1 

@@ -51,51 +51,55 @@ export default function MonthlyWagerCard({
   
   const todayKey = getTodayKey();
 
-  // Scroll-based wiggle animation
+  // Scroll-based wiggle animation with smooth interpolation
   useEffect(() => {
-    let ticking = false;
     let lastScrollTop = 0;
-    let decayTimeout: NodeJS.Timeout;
-
-    const handleScroll = (e: Event) => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          const target = e.target as HTMLElement;
-          const currentScrollTop = target.scrollTop || window.scrollY;
-          const scrollDelta = currentScrollTop - lastScrollTop;
-          
-          // Accumulate scroll delta for more noticeable effect
-          // Use a smaller divisor to amplify the effect
-          const normalizedDelta = Math.max(-1, Math.min(1, scrollDelta / 2));
-          
-          // Only update if there's meaningful scroll
-          if (Math.abs(scrollDelta) > 0.1) {
-            setScrollProgress(normalizedDelta);
-          }
-          
-          // Clear any existing decay timeout
-          clearTimeout(decayTimeout);
-          
-          // Ease back to 0 after scrolling stops
-          decayTimeout = setTimeout(() => {
-            setScrollProgress(0);
-          }, 150);
-          
-          lastScrollTop = currentScrollTop;
-          ticking = false;
-        });
-        ticking = true;
+    let targetProgress = 0;
+    let currentProgress = 0;
+    let animationFrameId: number;
+    
+    // Smooth animation loop that interpolates towards target
+    const animate = () => {
+      // Lerp towards target (smooth interpolation)
+      const diff = targetProgress - currentProgress;
+      currentProgress += diff * 0.15; // Adjust this for smoothness (lower = smoother)
+      
+      // Decay target towards 0
+      targetProgress *= 0.92;
+      
+      // Only update state if there's visible change
+      if (Math.abs(currentProgress) > 0.001 || Math.abs(targetProgress) > 0.001) {
+        setScrollProgress(currentProgress);
+        animationFrameId = requestAnimationFrame(animate);
+      } else {
+        setScrollProgress(0);
       }
     };
 
-    // Find the main snap scroll container (the one with snap-y snap-mandatory)
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const currentScrollTop = target.scrollTop || window.scrollY;
+      const scrollDelta = currentScrollTop - lastScrollTop;
+      
+      // Add to target progress (clamped)
+      targetProgress = Math.max(-1, Math.min(1, targetProgress + scrollDelta / 50));
+      
+      lastScrollTop = currentScrollTop;
+      
+      // Start animation loop if not already running
+      if (!animationFrameId) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    };
+
+    // Find the main snap scroll container
     const scrollContainer = cardRef.current?.closest('.snap-y');
     
     if (scrollContainer) {
       scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
       return () => {
         scrollContainer.removeEventListener('scroll', handleScroll);
-        clearTimeout(decayTimeout);
+        cancelAnimationFrame(animationFrameId);
       };
     }
 
@@ -103,7 +107,7 @@ export default function MonthlyWagerCard({
     window.addEventListener('scroll', handleScroll as EventListener, { passive: true });
     return () => {
       window.removeEventListener('scroll', handleScroll as EventListener);
-      clearTimeout(decayTimeout);
+      cancelAnimationFrame(animationFrameId);
     };
   }, []);
 
@@ -164,7 +168,6 @@ export default function MonthlyWagerCard({
     const scaleAmount = 1 + Math.abs(scrollProgress) * 0.15; // More noticeable scale on scroll
     
     baseStyle.transform = `rotate(${rotationAmount}deg) scale(${scaleAmount})`;
-    baseStyle.transition = 'transform 0.1s ease-out, background-color 0.2s ease';
 
     // Pulse animation for today
     if (isToday) {
@@ -196,7 +199,6 @@ export default function MonthlyWagerCard({
     const starStyle: React.CSSProperties = {
       opacity,
       transform: `rotate(${rotationAmount}deg) scale(${scaleAmount})`,
-      transition: 'transform 0.15s ease-out',
     };
 
     // Pulse animation for today

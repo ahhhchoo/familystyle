@@ -37,6 +37,7 @@ export interface Goal {
   isActive: boolean;
   frequency: GoalFrequency; // 'daily' or 'weekly'
   weeklyTarget?: number; // Required if frequency is 'weekly' (e.g., 3 times per week)
+  order?: number; // Display order (lower = higher in list)
 }
 
 export interface DailyCheckIn {

@@ -21,7 +21,7 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--orange)]">
+      <div className="fixed inset-0 flex items-center justify-center bg-[var(--orange)]">
         <div className="animate-pulse text-white text-2xl font-bold">
           Loading...
         </div>
