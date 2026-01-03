@@ -129,7 +129,9 @@ export default function PersonCard({ member, isCurrentUser = false, onClick }: P
             {isComplete ? 'Complete' : 'Incomplete'}
           </p>
           <p className="text-[var(--gray-text)] text-xs">
-            {isComplete ? formatTime(member.completedAt) : 'waiting'}
+            {isComplete 
+              ? formatTime(member.completedAt) 
+              : `waiting ${member.goalsCompleted}/${member.totalGoals}`}
           </p>
         </div>
 
