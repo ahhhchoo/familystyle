@@ -314,8 +314,11 @@ export default function OverviewPage() {
             <div
               key={dateKey}
               className={`aspect-square rounded-full transition-colors ${bgColor}
-                ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black animate-pulse-slow' : ''}
+                ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black' : ''}
               `}
+              style={isToday ? {
+                animation: 'pulse-slow 2s ease-in-out infinite',
+              } : undefined}
               title={`${dateKey}: ${status}`}
             />
           );

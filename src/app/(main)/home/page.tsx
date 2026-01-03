@@ -7,6 +7,7 @@ import { collection, query, where, onSnapshot, doc, getDoc, getDocs } from 'fire
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import PersonCard from '@/components/PersonCard';
+import Skeleton from '@/components/Skeleton';
 import { FamilyMemberStatus, DailyCheckIn, User, TimestampOrDate, Goal } from '@/types';
 
 // Helper to convert Firestore timestamp to milliseconds
@@ -244,17 +245,17 @@ export default function HomePage() {
         <header className="mb-8">
           <div className="flex items-start justify-between">
             <div>
-              <div className="skeleton h-10 w-48 rounded-lg mb-2" />
-              <div className="skeleton h-4 w-32 rounded" />
+              <Skeleton className="h-10 w-48 rounded-lg mb-2" />
+              <Skeleton className="h-4 w-32 rounded" />
             </div>
-            <div className="skeleton w-12 h-12 rounded-full" />
+            <Skeleton className="w-12 h-12 rounded-full" />
           </div>
         </header>
 
         {/* Skeleton Grid */}
         <div className="grid grid-cols-2 gap-3">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="skeleton h-48 rounded-3xl" />
+            <Skeleton key={i} className="h-48 rounded-3xl" />
           ))}
         </div>
       </div>

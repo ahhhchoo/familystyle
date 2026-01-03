@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GoalFrequency } from '@/types';
 
 interface GoalItemProps {
@@ -25,17 +25,27 @@ export default function GoalItem({
   const isWeekly = frequency === 'weekly';
   const weeklyComplete = isWeekly && weeklyTarget && weeklyProgress >= weeklyTarget;
   const [isPulsing, setIsPulsing] = useState(false);
-  const [prevCompleted, setPrevCompleted] = useState(completed);
+  const [isAnimatingCheck, setIsAnimatingCheck] = useState(false);
+  const prevCompletedRef = useRef(completed);
 
-  // Trigger pulse animation when completed changes to true
+  // Trigger animations when completed changes to true
   useEffect(() => {
-    if (completed && !prevCompleted) {
+    if (completed && !prevCompletedRef.current) {
       setIsPulsing(true);
-      const timer = setTimeout(() => setIsPulsing(false), 400);
-      return () => clearTimeout(timer);
+      setIsAnimatingCheck(true);
+      const pulseTimer = setTimeout(() => setIsPulsing(false), 400);
+      // Small delay to let the initial state render, then animate
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsAnimatingCheck(false);
+        });
+      });
+      return () => {
+        clearTimeout(pulseTimer);
+      };
     }
-    setPrevCompleted(completed);
-  }, [completed, prevCompleted]);
+    prevCompletedRef.current = completed;
+  }, [completed]);
 
   return (
     <button
@@ -78,10 +88,9 @@ export default function GoalItem({
           >
             <path 
               d="M5 13l4 4L19 7"
-              className={completed ? 'animate-draw-check' : ''}
               style={{
                 strokeDasharray: 24,
-                strokeDashoffset: completed ? 0 : 24,
+                strokeDashoffset: isAnimatingCheck ? 24 : 0,
                 transition: 'stroke-dashoffset 0.3s ease-out',
               }}
             />

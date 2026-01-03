@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import GoalItem from '@/components/GoalItem';
 import AnimatedNumber from '@/components/AnimatedNumber';
+import Skeleton from '@/components/Skeleton';
 import { User, Goal, DailyCheckIn } from '@/types';
 
 type DayStatus = 'complete' | 'partial' | 'none' | 'future';
@@ -280,20 +281,20 @@ export default function MemberPage({ params }: PageProps) {
       <div className="min-h-screen bg-black px-4 pt-16 pb-8">
         {/* Skeleton Header */}
         <header className="flex items-center justify-between mb-4">
-          <div className="skeleton w-12 h-12 rounded-full" />
-          <div className="skeleton w-12 h-12 rounded-full" />
+          <Skeleton className="w-12 h-12 rounded-full" />
+          <Skeleton className="w-12 h-12 rounded-full" />
         </header>
 
         {/* Skeleton Name */}
         <div className="mb-6">
-          <div className="skeleton h-10 w-40 rounded-lg mb-2" />
-          <div className="skeleton h-4 w-32 rounded" />
+          <Skeleton className="h-10 w-40 rounded-lg mb-2" />
+          <Skeleton className="h-4 w-32 rounded" />
         </div>
 
         {/* Skeleton Goals */}
         <div className="flex flex-col gap-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="skeleton h-20 rounded-2xl" />
+            <Skeleton key={i} className="h-20 rounded-2xl" />
           ))}
         </div>
       </div>
@@ -432,8 +433,11 @@ export default function MemberPage({ params }: PageProps) {
               <div
                 key={dateKey}
                 className={`aspect-square rounded-full transition-colors ${bgColor}
-                  ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black animate-pulse-slow' : ''}
+                  ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black' : ''}
                 `}
+                style={isToday ? {
+                  animation: 'pulse-slow 2s ease-in-out infinite',
+                } : undefined}
                 title={`${dateKey}: ${status}`}
               />
             );
