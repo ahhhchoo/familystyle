@@ -9,8 +9,58 @@ interface PersonCardProps {
   onClick?: () => void;
 }
 
+// Progress ring component
+function ProgressRing({ 
+  progress, 
+  size = 48, 
+  strokeWidth = 3 
+}: { 
+  progress: number; 
+  size?: number; 
+  strokeWidth?: number;
+}) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const offset = circumference - (progress / 100) * circumference;
+  
+  return (
+    <svg
+      width={size}
+      height={size}
+      className="absolute -rotate-90"
+    >
+      {/* Background circle */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="rgba(255,255,255,0.08)"
+        strokeWidth={strokeWidth}
+      />
+      {/* Progress circle */}
+      {progress > 0 && (
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="var(--green)"
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
+  );
+}
+
 export default function PersonCard({ member, isCurrentUser = false, onClick }: PersonCardProps) {
   const isComplete = member.goalsCompleted === member.totalGoals && member.totalGoals > 0;
+  const progress = member.totalGoals > 0 
+    ? Math.round((member.goalsCompleted / member.totalGoals) * 100) 
+    : 0;
   
   const formatTime = (date: Date | null | { seconds: number; nanoseconds: number }) => {
     if (!date) return 'waiting';
@@ -83,20 +133,26 @@ export default function PersonCard({ member, isCurrentUser = false, onClick }: P
           </p>
         </div>
 
-        {/* Status Icon */}
-        <div
-          className={`w-12 h-12 rounded-full flex items-center justify-center border border-white/[0.08]
-            ${isComplete ? 'bg-[var(--green)]' : 'bg-[var(--gray-card)]'}`}
-        >
-          {isComplete ? (
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          ) : (
-            <svg className="w-6 h-6 text-[var(--gray-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-            </svg>
-          )}
+        {/* Status Icon with Progress Ring */}
+        <div className="relative w-12 h-12">
+          {/* Progress ring */}
+          <ProgressRing progress={progress} size={48} strokeWidth={3} />
+          
+          {/* Inner circle with icon */}
+          <div
+            className={`absolute inset-[3px] rounded-full flex items-center justify-center
+              ${isComplete ? 'bg-[var(--green)]' : 'bg-[var(--gray-card)]'}`}
+          >
+            {isComplete ? (
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 text-[var(--gray-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+              </svg>
+            )}
+          </div>
         </div>
       </div>
     </button>
