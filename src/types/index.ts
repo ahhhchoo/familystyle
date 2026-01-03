@@ -30,6 +30,7 @@ export type GoalFrequency = 'daily' | 'weekly';
 export interface Goal {
   id: string;
   userId: string;
+  userName?: string; // Human-readable user name (for easier debugging in Firebase console)
   familyId: string;
   title: string;
   createdAt: TimestampOrDate;
@@ -41,7 +42,9 @@ export interface Goal {
 export interface DailyCheckIn {
   id: string;
   goalId: string;
+  goalTitle?: string; // Human-readable goal name (for easier debugging in Firebase console)
   userId: string;
+  userName?: string; // Human-readable user name (for easier debugging in Firebase console)
   familyId: string;
   date: string; // YYYY-MM-DD format
   completed: boolean;
@@ -63,8 +66,10 @@ export interface MonthlyWager {
   id: string;
   familyId: string;
   month: string; // YYYY-MM format (e.g., "2026-01")
+  monthDisplay?: string; // Human-readable month (e.g., "January 2026") for easier debugging
   reward: string; // The reward text (e.g., "Omakase")
   assignedUserId: string; // User who picks the reward for this month
+  assignedUserName?: string; // Human-readable user name for easier debugging
   completionRate: number; // Calculated completion rate for the month (0-100)
   createdAt: TimestampOrDate;
   updatedAt: TimestampOrDate;

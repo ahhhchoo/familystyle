@@ -167,6 +167,7 @@ export default function MemberPage({ params }: PageProps) {
     if (!isCurrentUser || !currentUser?.familyId) return;
 
     const existingCheckIn = todayCheckIns.find(c => c.goalId === goalId);
+    const goal = goals.find(g => g.id === goalId);
 
     try {
       if (existingCheckIn) {
@@ -177,10 +178,12 @@ export default function MemberPage({ params }: PageProps) {
           completedAt: !existingCheckIn.completed ? serverTimestamp() : null,
         });
       } else {
-        // Create new check-in
+        // Create new check-in with human-readable fields for easier debugging
         await addDoc(collection(db, 'checkIns'), {
           goalId,
+          goalTitle: goal?.title || '', // Human-readable goal name
           userId: currentUser.uid,
+          userName: currentUser.displayName, // Human-readable user name
           familyId: currentUser.familyId,
           date: todayKey,
           completed: true,

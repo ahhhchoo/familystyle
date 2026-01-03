@@ -55,6 +55,7 @@ export default function EditGoalsPage() {
     try {
       await addDoc(collection(db, 'goals'), {
         userId: user.uid,
+        userName: user.displayName, // Human-readable user name for easier debugging
         familyId: user.familyId,
         title: newGoalTitle.trim(),
         createdAt: serverTimestamp(),

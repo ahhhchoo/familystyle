@@ -425,8 +425,10 @@ export default function OverviewPage() {
         await setDoc(wagerRef, {
           familyId: user.familyId,
           month: currentMonthKey,
+          monthDisplay: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }), // Human-readable month
           reward: currentReward,
           assignedUserId: currentMonthData.assignedUser.uid,
+          assignedUserName: currentMonthData.assignedUser.displayName, // Human-readable user name
           completionRate: currentMonthData.completionRate,
           createdAt: new Date(),
           updatedAt: new Date(),
