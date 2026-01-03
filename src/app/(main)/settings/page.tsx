@@ -5,15 +5,25 @@ import { useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, arrayRemove } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { Family } from '@/types';
+import { Family, User } from '@/types';
+
+interface MemberInfo {
+  uid: string;
+  displayName: string;
+  photoURL: string | null;
+  email: string;
+}
 
 export default function SettingsPage() {
   const { user, signOut, loading: authLoading } = useAuth();
   const router = useRouter();
   const [family, setFamily] = useState<Family | null>(null);
+  const [members, setMembers] = useState<MemberInfo[]>([]);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<MemberInfo | null>(null);
+  const [removingMember, setRemovingMember] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -23,13 +33,33 @@ export default function SettingsPage() {
       return;
     }
 
-    const fetchFamily = async () => {
+    const fetchFamilyAndMembers = async () => {
       try {
         const familyRef = doc(db, 'families', user.familyId!);
         const familySnap = await getDoc(familyRef);
         
         if (familySnap.exists()) {
-          setFamily({ id: familySnap.id, ...familySnap.data() } as Family);
+          const familyData = { id: familySnap.id, ...familySnap.data() } as Family;
+          setFamily(familyData);
+
+          // Fetch member details
+          const memberPromises = familyData.members.map(async (memberId) => {
+            const memberRef = doc(db, 'users', memberId);
+            const memberSnap = await getDoc(memberRef);
+            if (memberSnap.exists()) {
+              const data = memberSnap.data() as User;
+              return {
+                uid: memberId,
+                displayName: data.displayName,
+                photoURL: data.photoURL,
+                email: data.email,
+              };
+            }
+            return null;
+          });
+
+          const memberResults = await Promise.all(memberPromises);
+          setMembers(memberResults.filter((m): m is MemberInfo => m !== null));
         }
         setLoading(false);
       } catch (error) {
@@ -38,7 +68,7 @@ export default function SettingsPage() {
       }
     };
 
-    fetchFamily();
+    fetchFamilyAndMembers();
   }, [user, authLoading, router]);
 
   const handleCopyInviteCode = async () => {
@@ -99,6 +129,37 @@ export default function SettingsPage() {
     }
   };
 
+  const handleRemoveMember = async () => {
+    if (!user?.familyId || !family || !memberToRemove) return;
+
+    setRemovingMember(true);
+    try {
+      // Remove member from family members array
+      await updateDoc(doc(db, 'families', user.familyId), {
+        members: arrayRemove(memberToRemove.uid),
+      });
+
+      // Remove familyId from the removed user's document
+      await updateDoc(doc(db, 'users', memberToRemove.uid), {
+        familyId: null,
+      });
+
+      // Update local state
+      setMembers(members.filter(m => m.uid !== memberToRemove.uid));
+      setFamily({
+        ...family,
+        members: family.members.filter(id => id !== memberToRemove.uid),
+      });
+      setMemberToRemove(null);
+    } catch (error) {
+      console.error('Error removing member:', error);
+    } finally {
+      setRemovingMember(false);
+    }
+  };
+
+  const isManager = user?.uid === family?.createdBy;
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black">
@@ -128,12 +189,75 @@ export default function SettingsPage() {
           Family
         </h2>
         <div className="bg-[var(--gray-dark)] rounded-2xl p-5">
-          <p className="text-white font-semibold text-lg mb-1">{family?.name}</p>
-          <p className="text-[var(--gray-text)] text-sm">
-            {family?.members.length} {family?.members.length === 1 ? 'member' : 'members'}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-white font-semibold text-lg mb-1">{family?.name}</p>
+              <p className="text-[var(--gray-text)] text-sm">
+                {family?.members.length} {family?.members.length === 1 ? 'member' : 'members'}
+              </p>
+            </div>
+            {isManager && (
+              <span className="px-3 py-1 bg-[var(--orange)]/20 text-[var(--orange)] text-xs font-medium rounded-full">
+                Manager
+              </span>
+            )}
+          </div>
         </div>
       </section>
+
+      {/* Manage Members Section - Only visible to manager */}
+      {isManager && (
+        <section className="mb-8">
+          <h2 className="text-[var(--gray-text)] text-sm uppercase tracking-wide mb-3">
+            Manage Members
+          </h2>
+          <div className="bg-[var(--gray-dark)] rounded-2xl overflow-hidden">
+            {members.map((member, index) => (
+              <div 
+                key={member.uid}
+                className={`flex items-center justify-between p-4 ${
+                  index < members.length - 1 ? 'border-b border-[var(--gray-card)]' : ''
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {member.photoURL ? (
+                    <img 
+                      src={member.photoURL} 
+                      alt={member.displayName}
+                      className="w-10 h-10 rounded-full"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-[var(--gray-card)] flex items-center justify-center">
+                      <span className="text-white font-medium">
+                        {member.displayName.charAt(0)}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-white font-medium">
+                      {member.displayName}
+                      {member.uid === user?.uid && (
+                        <span className="text-[var(--gray-text)]"> (You)</span>
+                      )}
+                    </p>
+                    <p className="text-[var(--gray-text)] text-sm">{member.email}</p>
+                  </div>
+                </div>
+                {member.uid !== user?.uid && (
+                  <button
+                    onClick={() => setMemberToRemove(member)}
+                    className="p-2 text-red-400 hover:bg-red-400/10 rounded-full transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Invite Section */}
       <section className="mb-8">
@@ -213,6 +337,34 @@ export default function SettingsPage() {
                 className="flex-1 py-3 bg-red-500 text-white font-medium rounded-full"
               >
                 Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Member Confirmation Modal */}
+      {memberToRemove && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-6 z-50">
+          <div className="bg-[var(--gray-dark)] rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="text-white text-xl font-bold mb-2">Remove Member?</h3>
+            <p className="text-[var(--gray-text)] mb-6">
+              Are you sure you want to remove {memberToRemove.displayName} from {family?.name}? They&apos;ll need an invite code to rejoin.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMemberToRemove(null)}
+                disabled={removingMember}
+                className="flex-1 py-3 bg-[var(--gray-card)] text-white font-medium rounded-full disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemoveMember}
+                disabled={removingMember}
+                className="flex-1 py-3 bg-red-500 text-white font-medium rounded-full disabled:opacity-50"
+              >
+                {removingMember ? 'Removing...' : 'Remove'}
               </button>
             </div>
           </div>
