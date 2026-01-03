@@ -137,8 +137,10 @@ export default function PersonCard({ member, isCurrentUser = false, onClick }: P
 
         {/* Status Icon with Progress Ring */}
         <div className="relative w-12 h-12">
-          {/* Progress ring */}
-          <ProgressRing progress={progress} size={48} strokeWidth={3} />
+          {/* Progress ring - only show if not complete */}
+          {!isComplete && (
+            <ProgressRing progress={progress} size={48} strokeWidth={3} />
+          )}
           
           {/* Inner circle with icon */}
           <div
