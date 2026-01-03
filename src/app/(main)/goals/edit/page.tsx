@@ -159,43 +159,82 @@ export default function EditGoalsPage() {
     }
   };
 
-  // Touch handlers for mobile
+  // Touch handlers for mobile - attached to document for proper tracking
+  const touchDragRef = useRef<{ goalId: string; overGoalId: string | null }>({ goalId: '', overGoalId: null });
+  
+  useEffect(() => {
+    touchDragRef.current = { goalId: touchDragGoalId || '', overGoalId: dragOverGoalId };
+  }, [touchDragGoalId, dragOverGoalId]);
+
+  useEffect(() => {
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchDragGoalId) return;
+      
+      const touch = e.touches[0];
+      const currentY = touch.clientY;
+      
+      // Find which goal we're over
+      let targetGoalId: string | null = null;
+      goalRefs.current.forEach((el, id) => {
+        if (id !== touchDragGoalId && el) {
+          const rect = el.getBoundingClientRect();
+          if (currentY >= rect.top && currentY <= rect.bottom) {
+            targetGoalId = id;
+          }
+        }
+      });
+      
+      setDragOverGoalId(targetGoalId);
+      setTouchY(currentY);
+      
+      // Prevent scrolling while dragging
+      e.preventDefault();
+    };
+
+    const handleTouchEnd = () => {
+      const { goalId, overGoalId } = touchDragRef.current;
+      if (goalId && overGoalId && goalId !== overGoalId) {
+        // Reorder inline to avoid stale closure
+        const draggedIndex = goals.findIndex(g => g.id === goalId);
+        const targetIndex = goals.findIndex(g => g.id === overGoalId);
+        
+        if (draggedIndex !== -1 && targetIndex !== -1) {
+          const newGoals = [...goals];
+          const [draggedGoal] = newGoals.splice(draggedIndex, 1);
+          newGoals.splice(targetIndex, 0, draggedGoal);
+          setGoals(newGoals);
+          
+          // Update Firestore
+          const batch = writeBatch(db);
+          newGoals.forEach((goal, index) => {
+            batch.update(doc(db, 'goals', goal.id), { order: index });
+          });
+          batch.commit().catch(err => console.error('Error reordering:', err));
+        }
+      }
+      setTouchDragGoalId(null);
+      setDraggedGoalId(null);
+      setDragOverGoalId(null);
+    };
+
+    if (touchDragGoalId) {
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
+      document.addEventListener('touchcancel', handleTouchEnd);
+    }
+
+    return () => {
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [touchDragGoalId, goals]);
+
   const handleTouchStart = (e: React.TouchEvent, goalId: string) => {
-    // Only start drag from the handle area
     const touch = e.touches[0];
     setTouchDragGoalId(goalId);
     setTouchY(touch.clientY);
     setDraggedGoalId(goalId);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchDragGoalId) return;
-    
-    const touch = e.touches[0];
-    const currentY = touch.clientY;
-    
-    // Find which goal we're over
-    let targetGoalId: string | null = null;
-    goalRefs.current.forEach((el, id) => {
-      if (id !== touchDragGoalId && el) {
-        const rect = el.getBoundingClientRect();
-        if (currentY >= rect.top && currentY <= rect.bottom) {
-          targetGoalId = id;
-        }
-      }
-    });
-    
-    setDragOverGoalId(targetGoalId);
-    setTouchY(currentY);
-  };
-
-  const handleTouchEnd = async () => {
-    if (touchDragGoalId && dragOverGoalId && touchDragGoalId !== dragOverGoalId) {
-      await reorderGoals(touchDragGoalId, dragOverGoalId);
-    }
-    setTouchDragGoalId(null);
-    setDraggedGoalId(null);
-    setDragOverGoalId(null);
   };
 
 
@@ -381,8 +420,6 @@ export default function EditGoalsPage() {
                 <div 
                   className="cursor-grab active:cursor-grabbing py-2 px-1 -ml-1"
                   onTouchStart={(e) => handleTouchStart(e, goal.id)}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
                 >
                   <svg className="w-5 h-5 text-[var(--gray-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
