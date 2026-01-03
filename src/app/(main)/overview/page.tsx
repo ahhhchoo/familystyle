@@ -46,6 +46,14 @@ const getWeekDates = (anyDateInWeek: Date): string[] => {
   return dates;
 };
 
+// Helper: Get remaining days in the week from a given date (including that date)
+// Monday = 7 days left, Sunday = 1 day left
+const getDaysRemainingInWeek = (date: Date): number => {
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  return 7 - adjustedDay;
+};
+
 export default function OverviewPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -152,9 +160,6 @@ export default function OverviewPage() {
   // - For days before the week ends, show as "in progress" (partial if any activity)
   const dayStatuses = useMemo(() => {
     const statuses: Map<string, DayStatus> = new Map();
-    const todayDate = new Date();
-    const todayWeekEnd = getWeekEnd(todayDate);
-    const todayWeekEndKey = getDateKey(todayWeekEnd);
     
     // Group goals by user
     const goalsByUser = new Map<string, Goal[]>();
@@ -192,12 +197,7 @@ export default function OverviewPage() {
       const dayCheckIns = checkIns.filter(c => c.date === dateKey);
       const completedCheckIns = dayCheckIns.filter(c => c.completed === true);
       
-      // Check if this is a Sunday (end of week) or the current day
-      const dayOfWeek = date.getDay(); // 0 = Sunday
-      const isSunday = dayOfWeek === 0;
-      const isToday = dateKey === todayKey;
-      const weekEndKey = getDateKey(getWeekEnd(date));
-      const isWeekComplete = weekEndKey < todayKey || (weekEndKey === todayKey && isSunday);
+
       
       // Determine if everyone completed all their goals for this day
       let allComplete = true;
@@ -215,29 +215,22 @@ export default function OverviewPage() {
               allComplete = false;
             }
           } else if (goal.frequency === 'weekly') {
-            // Weekly goal: check if target is met by end of week
+            // Weekly goal: check if target is met OR still achievable
             const weekStartKey = getDateKey(getWeekStart(date));
             const key = `${goal.id}-${weekStartKey}`;
             const weekCount = weeklyCheckInCounts.get(key) || 0;
             const target = goal.weeklyTarget || 1;
+            const stillNeeded = target - weekCount;
+            const daysRemaining = getDaysRemainingInWeek(date);
             
-            if (isWeekComplete) {
-              // Week is over - evaluate final result
-              if (weekCount < target) {
-                allComplete = false;
-              }
-            } else {
-              // Week is still in progress
-              // For mid-week days, we can't say "incomplete" yet
-              // Show as complete if target is already met, otherwise partial
-              if (weekCount < target) {
-                // Target not yet met, but week isn't over
-                // Don't mark as failed, but also not fully complete
-                // We'll treat this as "in progress" 
-                allComplete = false;
-              }
-              // If weekCount >= target, user has already met the goal
+            // Complete if: already hit target OR still achievable (enough days left)
+            const isAchievable = weekCount >= target || stillNeeded <= daysRemaining;
+            
+            if (!isAchievable) {
+              // Mathematically impossible to reach target
+              allComplete = false;
             }
+            // If achievable (either already met or still possible), count as complete
             
             // Track if there's any weekly goal activity
             if (weekCount > 0) {

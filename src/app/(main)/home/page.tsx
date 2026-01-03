@@ -48,6 +48,15 @@ const getWeekDates = (anyDateInWeek: Date): string[] => {
   return dates;
 };
 
+// Helper: Get remaining days in the week (including today)
+// Monday = 7 days left, Sunday = 1 day left
+const getDaysRemainingInWeek = (date: Date): number => {
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  // Convert to Mon=0, Tue=1, ..., Sun=6
+  const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  return 7 - adjustedDay;
+};
+
 export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -149,6 +158,8 @@ export default function HomePage() {
               let weeklyGoalsComplete = 0;
               let weeklyGoalsTotal = 0;
               
+              const daysRemaining = getDaysRemainingInWeek(today);
+              
               memberGoals.forEach(goal => {
                 if (goal.frequency === 'daily') {
                   dailyGoalsTotal++;
@@ -162,7 +173,13 @@ export default function HomePage() {
                     c => c.userId === memberId && c.goalId === goal.id && c.completed
                   ).length;
                   const target = goal.weeklyTarget || 1;
-                  if (weekCount >= target) weeklyGoalsComplete++;
+                  const stillNeeded = target - weekCount;
+                  
+                  // Complete if: already hit target OR still achievable (enough days left)
+                  if (weekCount >= target || stillNeeded <= daysRemaining) {
+                    weeklyGoalsComplete++;
+                  }
+                  // Only incomplete if mathematically impossible to reach target
                 }
               });
               

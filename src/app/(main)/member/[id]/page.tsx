@@ -28,6 +28,13 @@ const getWeekDates = (date: Date): string[] => {
   return dates;
 };
 
+// Helper: Get remaining days in the week (including today)
+const getDaysRemainingInWeek = (date: Date): number => {
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  return 7 - adjustedDay;
+};
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
@@ -165,9 +172,22 @@ export default function MemberPage({ params }: PageProps) {
     return weekCheckIns.filter(c => c.goalId === goalId && c.completed).length;
   };
 
-  const completedCount = goals.filter(goal => 
-    todayCheckIns.some(c => c.goalId === goal.id && c.completed)
-  ).length;
+  // Check if a goal is "complete" (daily: done today, weekly: hit target OR still achievable)
+  const isGoalComplete = (goal: Goal): boolean => {
+    if (goal.frequency === 'daily') {
+      return todayCheckIns.some(c => c.goalId === goal.id && c.completed);
+    } else {
+      // Weekly goal
+      const weekCount = getWeeklyProgress(goal.id);
+      const target = goal.weeklyTarget || 1;
+      const stillNeeded = target - weekCount;
+      const daysRemaining = getDaysRemainingInWeek(today);
+      // Complete if already hit target OR still achievable
+      return weekCount >= target || stillNeeded <= daysRemaining;
+    }
+  };
+
+  const completedCount = goals.filter(isGoalComplete).length;
 
   if (authLoading || loading) {
     return (
