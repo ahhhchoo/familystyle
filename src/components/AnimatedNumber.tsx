@@ -49,21 +49,21 @@ export default function AnimatedNumber({
   const digits = paddedValue.split('');
 
   return (
-    <span className={`inline-flex overflow-hidden ${className}`}>
+    <span className={`inline-block overflow-hidden ${className}`}>
       {digits.map((digit, i) => (
         <span 
           key={`${maxDigits}-${i}`} 
-          className="inline-block h-[1.1em] overflow-hidden"
+          className="inline-block h-[1em] overflow-hidden align-top"
         >
           <span 
-            className="inline-flex flex-col"
+            className="block"
             style={{ 
-              transform: `translateY(${-parseInt(digit) * 1.1}em)`,
+              transform: `translateY(${-parseInt(digit) * 100}%)`,
               transition: 'transform 0.4s cubic-bezier(0.33, 1, 0.68, 1)',
             }}
           >
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-              <span key={n} className="h-[1.1em] leading-[1.1em]">{n}</span>
+              <span key={n} className="block h-[1em] leading-none">{n}</span>
             ))}
           </span>
         </span>
