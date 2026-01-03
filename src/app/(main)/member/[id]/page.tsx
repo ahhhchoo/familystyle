@@ -415,11 +415,21 @@ export default function MemberPage({ params }: PageProps) {
             return (
               <div
                 key={dateKey}
-                className={`aspect-square rounded-full transition-colors ${bgColor}
-                  ${isToday ? 'ring-2 ring-white/50 ring-offset-1 ring-offset-black animate-pulse' : ''}
-                `}
+                className="relative aspect-square"
                 title={`${dateKey}: ${status}`}
-              />
+              >
+                {/* The dot */}
+                <div 
+                  className={`w-full h-full rounded-full ${bgColor}`}
+                  style={isToday ? {
+                    animation: 'pulse-dot 3s ease-in-out infinite',
+                  } : undefined}
+                />
+                {/* Ring for today (doesn't pulse) */}
+                {isToday && (
+                  <div className="absolute inset-[-3px] rounded-full ring-2 ring-white/50" />
+                )}
+              </div>
             );
           })}
         </div>

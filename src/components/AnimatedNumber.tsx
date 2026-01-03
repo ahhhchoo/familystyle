@@ -11,13 +11,21 @@ interface AnimatedNumberProps {
 
 export default function AnimatedNumber({ 
   value, 
-  duration = 500, 
+  duration = 1000, 
   suffix = '',
   className = ''
 }: AnimatedNumberProps) {
-  const [displayValue, setDisplayValue] = useState(0);
+  const [displayValue, setDisplayValue] = useState(value);
+  const [isFirstRender, setIsFirstRender] = useState(true);
 
   useEffect(() => {
+    // Skip animation on first render
+    if (isFirstRender) {
+      setDisplayValue(value);
+      setIsFirstRender(false);
+      return;
+    }
+
     const startValue = displayValue;
     const endValue = value;
     const startTime = Date.now();
@@ -25,8 +33,8 @@ export default function AnimatedNumber({
     const animate = () => {
       const elapsed = Date.now() - startTime;
       const t = Math.min(elapsed / duration, 1);
-      // Ease out cubic
-      const eased = 1 - Math.pow(1 - t, 3);
+      // Ease out quart - smoother and slower feeling
+      const eased = 1 - Math.pow(1 - t, 4);
       const current = Math.round(startValue + (endValue - startValue) * eased);
       
       setDisplayValue(current);
@@ -37,7 +45,7 @@ export default function AnimatedNumber({
     };
 
     requestAnimationFrame(animate);
-  }, [value, duration]);
+  }, [value]);
 
   return (
     <span className={className}>
