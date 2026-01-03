@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   User as FirebaseUser,
 } from 'firebase/auth';
@@ -19,6 +20,11 @@ export function useAuth() {
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
+
+    // Check for redirect result first (for mobile sign-in)
+    getRedirectResult(auth).catch((err) => {
+      console.error('Redirect result error:', err);
+    });
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
       // Clean up previous user listener
@@ -54,7 +60,6 @@ export function useAuth() {
         unsubscribeUser = onSnapshot(userRef, (snapshot) => {
           if (snapshot.exists()) {
             const userData = snapshot.data() as User;
-
             setUser({ ...userData, uid: fbUser.uid });
           }
           setLoading(false);
@@ -78,7 +83,8 @@ export function useAuth() {
     try {
       setError(null);
       setLoading(true);
-      await signInWithPopup(auth, googleProvider);
+      // Use redirect for better mobile compatibility
+      await signInWithRedirect(auth, googleProvider);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
       setLoading(false);
