@@ -62,13 +62,19 @@ export default function AnimatedNumber({
     requestAnimationFrame(animate);
   }, [value, duration]);
 
-  // Split into individual digits
-  const digits = String(displayValue).split('').map(d => parseInt(d));
+  // Pad to match final value's digit count to prevent layout shift
+  const maxDigits = String(value).length;
+  const paddedValue = String(displayValue).padStart(maxDigits, ' ');
+  const digits = paddedValue.split('');
 
   return (
     <span className={className}>
       {digits.map((digit, i) => (
-        <Digit key={`${digits.length}-${i}`} value={digit} />
+        digit === ' ' ? (
+          <span key={`${maxDigits}-${i}`} className="inline-block" style={{ width: '0.6em' }} />
+        ) : (
+          <Digit key={`${maxDigits}-${i}`} value={parseInt(digit)} />
+        )
       ))}
       {suffix}
     </span>
