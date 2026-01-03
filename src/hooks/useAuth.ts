@@ -20,59 +20,82 @@ export function useAuth() {
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
+    let isMounted = true;
 
-    // Check for redirect result first (for mobile sign-in)
-    getRedirectResult(auth).catch((err) => {
-      console.error('Redirect result error:', err);
-    });
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-      // Clean up previous user listener
-      if (unsubscribeUser) {
-        unsubscribeUser();
-        unsubscribeUser = null;
+    const setupAuthListener = async () => {
+      // Check for redirect result first (for mobile sign-in)
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          console.log('Redirect sign-in successful:', result.user.email);
+        }
+      } catch (err) {
+        console.error('Redirect result error:', err);
       }
 
-      if (fbUser) {
-        setFirebaseUser(fbUser);
-        const userRef = doc(db, 'users', fbUser.uid);
-        
-        // Check if user exists first
-        const userSnap = await getDoc(userRef);
-        
-        if (!userSnap.exists()) {
-          // Create new user document
-          const newUser: User = {
-            uid: fbUser.uid,
-            email: fbUser.email || '',
-            displayName: fbUser.displayName || '',
-            photoURL: fbUser.photoURL,
-            familyId: null,
-            createdAt: new Date(),
-          };
-          await setDoc(userRef, {
-            ...newUser,
-            createdAt: serverTimestamp(),
-          });
+      const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+        if (!isMounted) return;
+
+        // Clean up previous user listener
+        if (unsubscribeUser) {
+          unsubscribeUser();
+          unsubscribeUser = null;
         }
 
-        // Listen to user document for real-time updates (including familyId changes)
-        unsubscribeUser = onSnapshot(userRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const userData = snapshot.data() as User;
-            setUser({ ...userData, uid: fbUser.uid });
+        if (fbUser) {
+          setFirebaseUser(fbUser);
+          const userRef = doc(db, 'users', fbUser.uid);
+          
+          // Check if user exists first
+          const userSnap = await getDoc(userRef);
+          
+          if (!userSnap.exists()) {
+            // Create new user document
+            const newUser: User = {
+              uid: fbUser.uid,
+              email: fbUser.email || '',
+              displayName: fbUser.displayName || '',
+              photoURL: fbUser.photoURL,
+              familyId: null,
+              createdAt: new Date(),
+            };
+            await setDoc(userRef, {
+              ...newUser,
+              createdAt: serverTimestamp(),
+            });
           }
+
+          if (!isMounted) return;
+
+          // Listen to user document for real-time updates (including familyId changes)
+          unsubscribeUser = onSnapshot(userRef, (snapshot) => {
+            if (!isMounted) return;
+            if (snapshot.exists()) {
+              const userData = snapshot.data() as User;
+              setUser({ ...userData, uid: fbUser.uid });
+            }
+            setLoading(false);
+          });
+        } else {
+          setFirebaseUser(null);
+          setUser(null);
           setLoading(false);
-        });
-      } else {
-        setFirebaseUser(null);
-        setUser(null);
-        setLoading(false);
-      }
+        }
+      });
+
+      return unsubscribeAuth;
+    };
+
+    let unsubscribeAuth: (() => void) | undefined;
+    setupAuthListener().then((unsub) => {
+      unsubscribeAuth = unsub;
     });
 
     return () => {
-      unsubscribeAuth();
+      isMounted = false;
+      if (unsubscribeAuth) {
+        unsubscribeAuth();
+      }
       if (unsubscribeUser) {
         unsubscribeUser();
       }
