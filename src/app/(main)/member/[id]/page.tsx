@@ -422,7 +422,7 @@ export default function MemberPage({ params }: PageProps) {
                 <div 
                   className={`w-full h-full rounded-full ${bgColor}`}
                   style={isToday ? {
-                    animation: 'pulse-dot 2.3s ease-in-out infinite',
+                    animation: 'pulse-dot 2.8s ease-in-out infinite',
                   } : undefined}
                 />
                 {/* Ring for today (doesn't pulse) */}
