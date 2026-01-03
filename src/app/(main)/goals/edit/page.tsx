@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -25,6 +25,12 @@ export default function EditGoalsPage() {
   // Drag and drop state
   const [draggedGoalId, setDraggedGoalId] = useState<string | null>(null);
   const [dragOverGoalId, setDragOverGoalId] = useState<string | null>(null);
+  
+  // Touch drag state
+  const [touchDragGoalId, setTouchDragGoalId] = useState<string | null>(null);
+  const [touchY, setTouchY] = useState(0);
+  const goalRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -153,6 +159,45 @@ export default function EditGoalsPage() {
     }
   };
 
+  // Touch handlers for mobile
+  const handleTouchStart = (e: React.TouchEvent, goalId: string) => {
+    // Only start drag from the handle area
+    const touch = e.touches[0];
+    setTouchDragGoalId(goalId);
+    setTouchY(touch.clientY);
+    setDraggedGoalId(goalId);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchDragGoalId) return;
+    
+    const touch = e.touches[0];
+    const currentY = touch.clientY;
+    
+    // Find which goal we're over
+    let targetGoalId: string | null = null;
+    goalRefs.current.forEach((el, id) => {
+      if (id !== touchDragGoalId && el) {
+        const rect = el.getBoundingClientRect();
+        if (currentY >= rect.top && currentY <= rect.bottom) {
+          targetGoalId = id;
+        }
+      }
+    });
+    
+    setDragOverGoalId(targetGoalId);
+    setTouchY(currentY);
+  };
+
+  const handleTouchEnd = async () => {
+    if (touchDragGoalId && dragOverGoalId && touchDragGoalId !== dragOverGoalId) {
+      await reorderGoals(touchDragGoalId, dragOverGoalId);
+    }
+    setTouchDragGoalId(null);
+    setDraggedGoalId(null);
+    setDragOverGoalId(null);
+  };
+
 
 
   const handleUpdateGoal = async (goalId: string) => {
@@ -238,10 +283,14 @@ export default function EditGoalsPage() {
       </div>
 
       {/* Goals List */}
-      <div className="flex flex-col gap-3 mb-6">
+      <div ref={listRef} className="flex flex-col gap-3 mb-6">
         {goals.map((goal) => (
           <div
             key={goal.id}
+            ref={(el) => {
+              if (el) goalRefs.current.set(goal.id, el);
+              else goalRefs.current.delete(goal.id);
+            }}
             draggable={editingGoalId !== goal.id}
             onDragStart={(e) => handleDragStart(e, goal.id)}
             onDragOver={(e) => handleDragOver(e, goal.id)}
@@ -249,8 +298,8 @@ export default function EditGoalsPage() {
             onDrop={(e) => handleDrop(e, goal.id)}
             onDragEnd={handleDragEnd}
             className={`w-full bg-[var(--gray-dark)] rounded-2xl px-5 py-4 transition-all duration-200
-              ${draggedGoalId === goal.id ? 'opacity-50 scale-95' : ''}
-              ${dragOverGoalId === goal.id ? 'ring-2 ring-[var(--orange)] ring-opacity-50' : ''}`}
+              ${draggedGoalId === goal.id ? 'opacity-60 scale-[0.98] shadow-lg' : ''}
+              ${dragOverGoalId === goal.id ? 'ring-2 ring-[var(--orange)] scale-[1.02]' : ''}`}
           >
             {editingGoalId === goal.id ? (
               <div className="flex flex-col gap-4">
@@ -329,7 +378,12 @@ export default function EditGoalsPage() {
             ) : (
               <div className="flex items-center gap-3">
                 {/* Drag handle */}
-                <div className="cursor-grab active:cursor-grabbing touch-none py-2">
+                <div 
+                  className="cursor-grab active:cursor-grabbing py-2 px-1 -ml-1"
+                  onTouchStart={(e) => handleTouchStart(e, goal.id)}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                >
                   <svg className="w-5 h-5 text-[var(--gray-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
                   </svg>
