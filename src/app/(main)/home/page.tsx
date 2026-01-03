@@ -85,12 +85,12 @@ export default function HomePage() {
     if (authLoading) return;
     
     if (!user) {
-      router.push('/');
+      router.replace('/');
       return;
     }
 
     if (!user.familyId) {
-      router.push('/join-family');
+      router.replace('/join-family');
       return;
     }
 

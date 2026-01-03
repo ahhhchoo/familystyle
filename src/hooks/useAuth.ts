@@ -20,20 +20,28 @@ export function useAuth() {
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
+    let unsubscribeAuth: (() => void) | null = null;
     let isMounted = true;
 
     const setupAuthListener = async () => {
       // Check for redirect result first (for mobile sign-in)
+      // This must complete BEFORE we trust onAuthStateChanged
       try {
+        console.log('Checking for redirect result...');
         const result = await getRedirectResult(auth);
         if (result?.user) {
           console.log('Redirect sign-in successful:', result.user.email);
+        } else {
+          console.log('No redirect result');
         }
       } catch (err) {
         console.error('Redirect result error:', err);
       }
 
-      const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+      // Now set up the auth state listener
+      unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+        console.log('Auth state changed:', fbUser?.email || 'no user');
+        
         if (!isMounted) return;
 
         // Clean up previous user listener
@@ -51,6 +59,7 @@ export function useAuth() {
           
           if (!userSnap.exists()) {
             // Create new user document
+            console.log('Creating new user document for:', fbUser.email);
             const newUser: User = {
               uid: fbUser.uid,
               email: fbUser.email || '',
@@ -72,6 +81,7 @@ export function useAuth() {
             if (!isMounted) return;
             if (snapshot.exists()) {
               const userData = snapshot.data() as User;
+              console.log('User data loaded, familyId:', userData.familyId);
               setUser({ ...userData, uid: fbUser.uid });
             }
             setLoading(false);
@@ -82,14 +92,9 @@ export function useAuth() {
           setLoading(false);
         }
       });
-
-      return unsubscribeAuth;
     };
 
-    let unsubscribeAuth: (() => void) | undefined;
-    setupAuthListener().then((unsub) => {
-      unsubscribeAuth = unsub;
-    });
+    setupAuthListener();
 
     return () => {
       isMounted = false;

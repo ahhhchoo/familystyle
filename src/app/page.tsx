@@ -11,10 +11,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!loading && user) {
+      console.log('User logged in, familyId:', user.familyId);
       if (user.familyId) {
-        router.push('/home');
+        router.replace('/home');
       } else {
-        router.push('/join-family');
+        router.replace('/join-family');
       }
     }
   }, [user, loading, router]);
