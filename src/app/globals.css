@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/* Font faces - SF Pro and Haffer */
+@font-face {
+  font-family: 'SF Pro Display';
+  src: local('SF Pro Display');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'SF Pro Text';
+  src: local('SF Pro Text');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Haffer';
+  src: local('Haffer Trial'), local('Haffer');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+  --orange: #F5A524;
+  --orange-light: #F5B84C;
+  --gray-dark: #1C1C1E;
+  --gray-card: #2C2C2E;
+  --gray-text: #8E8E93;
+  --green: #30D158;
+  
+  --font-sf-pro: 'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-haffer: 'Haffer', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-orange: var(--orange);
+  --color-orange-light: var(--orange-light);
+  --color-gray-dark: var(--gray-dark);
+  --color-gray-card: var(--gray-card);
+  --color-gray-text: var(--gray-text);
+  --color-green: var(--green);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font-family: var(--font-sf-pro);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sf-pro);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* Mobile viewport fix */
+@supports (height: 100dvh) {
+  body {
+    min-height: 100dvh;
+  }
+}
+
+/* Safe area insets for iPhone */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Hide scrollbar but keep functionality */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
