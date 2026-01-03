@@ -95,6 +95,9 @@ export default function HomePage() {
     }
 
     // Listen to family members and their check-ins
+    let unsubscribeCheckIns: (() => void) | null = null;
+    const userUnsubscribes: (() => void)[] = [];
+
     const fetchFamilyData = async () => {
       try {
         // Get family document
@@ -124,36 +127,22 @@ export default function HomePage() {
         // Get this week's dates for weekly goal calculation
         const weekDates = getWeekDates(today);
 
-        // Listen to check-ins for today AND this week (for weekly goals)
-        const checkInsQuery = query(
-          collection(db, 'checkIns'),
-          where('familyId', '==', user.familyId)
-        );
+        // Store member data and check-ins that update in real-time
+        const memberDataMap = new Map<string, User>();
+        let latestCheckIns: DailyCheckIn[] = [];
 
-        const unsubscribeCheckIns = onSnapshot(checkInsQuery, async (checkInsSnap) => {
-          const allCheckIns = checkInsSnap.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as DailyCheckIn[];
-          
-          // Filter for today's check-ins
-          const todayCheckIns = allCheckIns.filter(c => c.date === todayKey);
-          
-          // Filter for this week's check-ins
-          const weekCheckIns = allCheckIns.filter(c => weekDates.includes(c.date));
-
-          // Fetch all member data
+        // Function to rebuild and update family members
+        const rebuildMembersData = () => {
+          const todayCheckIns = latestCheckIns.filter(c => c.date === todayKey);
+          const weekCheckIns = latestCheckIns.filter(c => weekDates.includes(c.date));
           const membersData: FamilyMemberStatus[] = [];
 
           for (const memberId of memberIds) {
-            const memberRef = doc(db, 'users', memberId);
-            const memberSnap = await getDoc(memberRef);
+            const memberData = memberDataMap.get(memberId);
             
-            if (memberSnap.exists()) {
-              const memberData = memberSnap.data() as User;
+            if (memberData) {
               const memberGoals = allGoals.filter(g => g.userId === memberId);
               
-              // Calculate completion status for each goal type
               let dailyGoalsComplete = 0;
               let dailyGoalsTotal = 0;
               let weeklyGoalsComplete = 0;
@@ -162,7 +151,7 @@ export default function HomePage() {
               const daysRemaining = getDaysRemainingInWeek(today);
               
               memberGoals.forEach(goal => {
-                const frequency = goal.frequency || 'daily'; // Default to daily if not set
+                const frequency = goal.frequency || 'daily';
                 if (frequency === 'daily') {
                   dailyGoalsTotal++;
                   const isCompleted = todayCheckIns.some(
@@ -177,11 +166,9 @@ export default function HomePage() {
                   const target = goal.weeklyTarget || 1;
                   const stillNeeded = target - weekCount;
                   
-                  // Complete if: already hit target OR still achievable (enough days left)
                   if (weekCount >= target || stillNeeded <= daysRemaining) {
                     weeklyGoalsComplete++;
                   }
-                  // Only incomplete if mathematically impossible to reach target
                 }
               });
               
@@ -189,7 +176,6 @@ export default function HomePage() {
               const completedGoals = dailyGoalsComplete + weeklyGoalsComplete;
               const isComplete = totalGoals > 0 && completedGoals === totalGoals;
 
-              // Find latest completion time from today's check-ins
               const memberTodayCompletedCheckIns = todayCheckIns.filter(
                 c => c.userId === memberId && c.completed && c.completedAt
               );
@@ -225,9 +211,41 @@ export default function HomePage() {
 
           setFamilyMembers(membersData);
           setLoading(false);
+        };
+
+        // Set up listeners for each family member's user document
+        for (const memberId of memberIds) {
+          const memberRef = doc(db, 'users', memberId);
+          const unsubscribe = onSnapshot(memberRef, (memberSnap) => {
+            if (memberSnap.exists()) {
+              memberDataMap.set(memberId, { uid: memberId, ...memberSnap.data() } as User);
+              // Rebuild members data when any user document changes
+              if (memberDataMap.size === memberIds.length) {
+                rebuildMembersData();
+              }
+            }
+          });
+          userUnsubscribes.push(unsubscribe);
+        }
+
+        // Listen to check-ins
+        const checkInsQuery = query(
+          collection(db, 'checkIns'),
+          where('familyId', '==', user.familyId)
+        );
+
+        unsubscribeCheckIns = onSnapshot(checkInsQuery, (checkInsSnap) => {
+          latestCheckIns = checkInsSnap.docs.map(d => ({
+            id: d.id,
+            ...d.data()
+          })) as DailyCheckIn[];
+          
+          // Rebuild members data when check-ins change
+          if (memberDataMap.size === memberIds.length) {
+            rebuildMembersData();
+          }
         });
 
-        return () => unsubscribeCheckIns();
       } catch (error) {
         console.error('Error fetching family data:', error);
         setLoading(false);
@@ -235,6 +253,11 @@ export default function HomePage() {
     };
 
     fetchFamilyData();
+
+    return () => {
+      if (unsubscribeCheckIns) unsubscribeCheckIns();
+      userUnsubscribes.forEach(unsub => unsub());
+    };
   }, [user, authLoading, router, todayKey]);
 
   const incompleteCount = familyMembers.filter(m => !m.isComplete).length;
