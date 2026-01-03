@@ -76,27 +76,27 @@ export function useAuth() {
       }
     };
 
-    const setup = async () => {
-      // Check for redirect result first
-      try {
-        const result = await getRedirectResult(auth);
+    // Set up auth state listener immediately
+    unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+      console.log('Auth state changed:', fbUser?.email || 'no user');
+      await handleUser(fbUser);
+    });
+
+    // Also check for redirect result (for redirect sign-in flow)
+    // This is non-blocking - if it fails, auth state listener handles it
+    getRedirectResult(auth)
+      .then((result) => {
         if (result?.user) {
           console.log('Redirect sign-in successful:', result.user.email);
         }
-      } catch (err) {
-        console.error('Redirect result error:', err);
-      }
-
-      // Now set up auth state listener
-      if (isMounted) {
-        unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-          console.log('Auth state changed:', fbUser?.email || 'no user');
-          await handleUser(fbUser);
-        });
-      }
-    };
-
-    setup();
+      })
+      .catch((err) => {
+        // Ignore "missing initial state" errors - they're expected when not coming from redirect
+        const errorMessage = err instanceof Error ? err.message : '';
+        if (!errorMessage.includes('initial state')) {
+          console.error('Redirect result error:', err);
+        }
+      });
 
     return () => {
       isMounted = false;
