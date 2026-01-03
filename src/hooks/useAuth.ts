@@ -21,8 +21,8 @@ export function useAuth() {
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
+    let unsubscribeAuth: (() => void) | null = null;
     let isMounted = true;
-    let hasProcessedRedirect = false;
 
     const handleUser = async (fbUser: FirebaseUser | null) => {
       if (!isMounted) return;
@@ -72,15 +72,12 @@ export function useAuth() {
       } else {
         setFirebaseUser(null);
         setUser(null);
-        // Only set loading false if we've checked for redirect
-        if (hasProcessedRedirect) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
-    const init = async () => {
-      // Check for redirect result first (handles redirect sign-in fallback)
+    const setup = async () => {
+      // Check for redirect result first
       try {
         const result = await getRedirectResult(auth);
         if (result?.user) {
@@ -89,22 +86,17 @@ export function useAuth() {
       } catch (err) {
         console.error('Redirect result error:', err);
       }
-      
-      hasProcessedRedirect = true;
 
-      // Set up auth state listener
-      const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-        console.log('Auth state changed:', fbUser?.email || 'no user');
-        await handleUser(fbUser);
-      });
-
-      return unsubscribeAuth;
+      // Now set up auth state listener
+      if (isMounted) {
+        unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+          console.log('Auth state changed:', fbUser?.email || 'no user');
+          await handleUser(fbUser);
+        });
+      }
     };
 
-    let unsubscribeAuth: (() => void) | undefined;
-    init().then((unsub) => {
-      unsubscribeAuth = unsub;
-    });
+    setup();
 
     return () => {
       isMounted = false;
