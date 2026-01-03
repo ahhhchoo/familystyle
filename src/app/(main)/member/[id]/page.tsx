@@ -365,17 +365,22 @@ export default function MemberPage({ params }: PageProps) {
 
         {/* Scroll indicator */}
         <div className="flex justify-center mt-8">
-          <div className="flex flex-col items-center text-[var(--gray-text)] animate-bounce">
+          <button 
+            onClick={() => {
+              document.getElementById('stats-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center text-[var(--gray-text)] animate-bounce"
+          >
             <span className="text-xs mb-1">Your Stats</span>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
-          </div>
+          </button>
         </div>
       </section>
 
       {/* Second Section - Personal Stats */}
-      <section className="min-h-screen snap-start px-5 pt-24 pb-8">
+      <section id="stats-section" className="min-h-screen snap-start px-5 pt-24 pb-8">
         {/* Header */}
         <header className="mb-8">
           <h1 className="text-5xl font-bold text-white">
