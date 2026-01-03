@@ -15,16 +15,18 @@ export default function AnimatedNumber({
   suffix = '',
   className = ''
 }: AnimatedNumberProps) {
-  const [displayValue, setDisplayValue] = useState(value);
-  const previousValueRef = useRef(value);
+  const [displayValue, setDisplayValue] = useState(0);
+  const hasAnimatedRef = useRef(false);
 
   useEffect(() => {
-    const startValue = previousValueRef.current;
+    // Always animate from current display to new value
+    const startValue = hasAnimatedRef.current ? displayValue : 0;
     const endValue = value;
     
-    // Skip if no change
-    if (startValue === endValue) return;
+    // Skip if no change and already animated once
+    if (startValue === endValue && hasAnimatedRef.current) return;
     
+    hasAnimatedRef.current = true;
     const startTime = Date.now();
 
     const animate = () => {
@@ -38,8 +40,6 @@ export default function AnimatedNumber({
       
       if (t < 1) {
         requestAnimationFrame(animate);
-      } else {
-        previousValueRef.current = endValue;
       }
     };
 
