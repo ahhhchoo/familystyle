@@ -2,11 +2,31 @@
 
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import GoalItem from '@/components/GoalItem';
 import { User, Goal, DailyCheckIn } from '@/types';
+
+// Helper to get Monday of the current week
+const getMondayOfWeek = (date: Date): Date => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  return new Date(d.setDate(diff));
+};
+
+// Helper to get all dates in current week (Mon-Sun)
+const getWeekDates = (date: Date): string[] => {
+  const monday = getMondayOfWeek(date);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  return dates;
+};
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -19,13 +39,15 @@ export default function MemberPage({ params }: PageProps) {
   
   const [member, setMember] = useState<User | null>(null);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [checkIns, setCheckIns] = useState<DailyCheckIn[]>([]);
+  const [todayCheckIns, setTodayCheckIns] = useState<DailyCheckIn[]>([]);
+  const [weekCheckIns, setWeekCheckIns] = useState<DailyCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isCurrentUser = currentUser?.uid === memberId;
   // Use local timezone for date key
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const weekDates = getWeekDates(today);
 
   useEffect(() => {
     if (authLoading) return;
@@ -64,24 +86,41 @@ export default function MemberPage({ params }: PageProps) {
         });
 
         // Listen to today's check-ins
-        const checkInsQuery = query(
+        const todayCheckInsQuery = query(
           collection(db, 'checkIns'),
           where('userId', '==', memberId),
           where('date', '==', todayKey)
         );
 
-        const unsubscribeCheckIns = onSnapshot(checkInsQuery, (snapshot) => {
+        const unsubscribeTodayCheckIns = onSnapshot(todayCheckInsQuery, (snapshot) => {
           const checkInsData = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           })) as DailyCheckIn[];
-          setCheckIns(checkInsData);
+          setTodayCheckIns(checkInsData);
+        });
+
+        // Fetch week's check-ins for weekly goals
+        const weekCheckInsQuery = query(
+          collection(db, 'checkIns'),
+          where('userId', '==', memberId),
+          where('date', '>=', weekDates[0]),
+          where('date', '<=', weekDates[6])
+        );
+
+        const unsubscribeWeekCheckIns = onSnapshot(weekCheckInsQuery, (snapshot) => {
+          const checkInsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as DailyCheckIn[];
+          setWeekCheckIns(checkInsData);
           setLoading(false);
         });
 
         return () => {
           unsubscribeGoals();
-          unsubscribeCheckIns();
+          unsubscribeTodayCheckIns();
+          unsubscribeWeekCheckIns();
         };
       } catch (error) {
         console.error('Error fetching member data:', error);
@@ -90,12 +129,12 @@ export default function MemberPage({ params }: PageProps) {
     };
 
     fetchMemberData();
-  }, [memberId, currentUser, authLoading, router, todayKey]);
+  }, [memberId, currentUser, authLoading, router, todayKey, weekDates[0], weekDates[6]]);
 
   const handleToggleGoal = async (goalId: string) => {
     if (!isCurrentUser || !currentUser?.familyId) return;
 
-    const existingCheckIn = checkIns.find(c => c.goalId === goalId);
+    const existingCheckIn = todayCheckIns.find(c => c.goalId === goalId);
 
     try {
       if (existingCheckIn) {
@@ -121,8 +160,13 @@ export default function MemberPage({ params }: PageProps) {
     }
   };
 
+  // Calculate weekly progress for a goal
+  const getWeeklyProgress = (goalId: string): number => {
+    return weekCheckIns.filter(c => c.goalId === goalId && c.completed).length;
+  };
+
   const completedCount = goals.filter(goal => 
-    checkIns.some(c => c.goalId === goal.id && c.completed)
+    todayCheckIns.some(c => c.goalId === goal.id && c.completed)
   ).length;
 
   if (authLoading || loading) {
@@ -166,15 +210,16 @@ export default function MemberPage({ params }: PageProps) {
           {isCurrentUser && <span className="text-[var(--gray-text)]"> (You)</span>}
         </h1>
         <p className="text-[var(--gray-text)] mt-1">
-          {completedCount}/{goals.length} Complete
+          {completedCount}/{goals.length} Complete today
         </p>
       </div>
 
       {/* Goals List */}
       <div className="flex flex-col gap-3">
         {goals.map((goal) => {
-          const checkIn = checkIns.find(c => c.goalId === goal.id);
+          const checkIn = todayCheckIns.find(c => c.goalId === goal.id);
           const isCompleted = checkIn?.completed ?? false;
+          const weeklyProgress = goal.frequency === 'weekly' ? getWeeklyProgress(goal.id) : undefined;
           
           return (
             <GoalItem
@@ -183,6 +228,9 @@ export default function MemberPage({ params }: PageProps) {
               completed={isCompleted}
               onToggle={isCurrentUser ? () => handleToggleGoal(goal.id) : undefined}
               disabled={!isCurrentUser}
+              frequency={goal.frequency || 'daily'}
+              weeklyTarget={goal.weeklyTarget}
+              weeklyProgress={weeklyProgress}
             />
           );
         })}
@@ -204,8 +252,6 @@ export default function MemberPage({ params }: PageProps) {
             )}
           </div>
         )}
-
-
       </div>
     </div>
   );

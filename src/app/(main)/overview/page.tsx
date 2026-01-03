@@ -10,6 +10,42 @@ import { DailyCheckIn, Goal } from '@/types';
 
 type DayStatus = 'complete' | 'partial' | 'none' | 'future';
 
+// Helper: Get the Monday of the week for a given date
+const getWeekStart = (date: Date): Date => {
+  const d = new Date(date);
+  const day = d.getDay();
+  // Adjust so Monday = 0, Sunday = 6
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Helper: Get the Sunday of the week for a given date
+const getWeekEnd = (date: Date): Date => {
+  const weekStart = getWeekStart(date);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  return weekEnd;
+};
+
+// Helper: Get date key in YYYY-MM-DD format
+const getDateKey = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+// Helper: Get all dates in a week (Mon-Sun) as date keys
+const getWeekDates = (anyDateInWeek: Date): string[] => {
+  const weekStart = getWeekStart(anyDateInWeek);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    dates.push(getDateKey(d));
+  }
+  return dates;
+};
+
 export default function OverviewPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -109,8 +145,16 @@ export default function OverviewPage() {
   // - 'partial' (orange): At least someone completed something
   // - 'none' (gray): No one completed anything
   // - 'future' (dark gray): Future date
+  //
+  // For weekly goals:
+  // - Only evaluate on Sunday (end of week) or today if mid-week
+  // - Count completed check-ins for the week and compare to weeklyTarget
+  // - For days before the week ends, show as "in progress" (partial if any activity)
   const dayStatuses = useMemo(() => {
     const statuses: Map<string, DayStatus> = new Map();
+    const todayDate = new Date();
+    const todayWeekEnd = getWeekEnd(todayDate);
+    const todayWeekEndKey = getDateKey(todayWeekEnd);
     
     // Group goals by user
     const goalsByUser = new Map<string, Goal[]>();
@@ -119,46 +163,102 @@ export default function OverviewPage() {
       userGoals.push(goal);
       goalsByUser.set(goal.userId, userGoals);
     });
+
+    // Pre-compute weekly check-in counts for each goal per week
+    // Key: `${goalId}-${weekStartKey}`, Value: count of completed check-ins
+    const weeklyCheckInCounts = new Map<string, number>();
+    checkIns.forEach(checkIn => {
+      if (!checkIn.completed) return;
+      const goal = goals.find(g => g.id === checkIn.goalId);
+      if (!goal || goal.frequency !== 'weekly') return;
+      
+      // Parse the date from check-in
+      const [y, m, d] = checkIn.date.split('-').map(Number);
+      const checkInDate = new Date(y, m - 1, d);
+      const weekStartKey = getDateKey(getWeekStart(checkInDate));
+      const key = `${checkIn.goalId}-${weekStartKey}`;
+      weeklyCheckInCounts.set(key, (weeklyCheckInCounts.get(key) || 0) + 1);
+    });
     
     for (let i = 0; i < totalDays; i++) {
       const date = new Date(year, 0, i + 1);
-      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const dateKey = getDateKey(date);
       
       if (dateKey > todayKey) {
         statuses.set(dateKey, 'future');
-      } else {
-        const dayCheckIns = checkIns.filter(c => c.date === dateKey);
-        const completedCheckIns = dayCheckIns.filter(c => c.completed === true);
-        
-        if (completedCheckIns.length === 0) {
-          // No one completed anything
-          statuses.set(dateKey, 'none');
-        } else {
-          // Check if everyone completed all their goals
-          let allComplete = true;
-          
-          // For each user with goals, check if all their goals are completed
-          goalsByUser.forEach((userGoals, userId) => {
-            const userCompletedGoalIds = completedCheckIns
-              .filter(c => c.userId === userId)
-              .map(c => c.goalId);
-            
-            const userCompletedAll = userGoals.every(goal => 
-              userCompletedGoalIds.includes(goal.id)
+        continue;
+      }
+      
+      const dayCheckIns = checkIns.filter(c => c.date === dateKey);
+      const completedCheckIns = dayCheckIns.filter(c => c.completed === true);
+      
+      // Check if this is a Sunday (end of week) or the current day
+      const dayOfWeek = date.getDay(); // 0 = Sunday
+      const isSunday = dayOfWeek === 0;
+      const isToday = dateKey === todayKey;
+      const weekEndKey = getDateKey(getWeekEnd(date));
+      const isWeekComplete = weekEndKey < todayKey || (weekEndKey === todayKey && isSunday);
+      
+      // Determine if everyone completed all their goals for this day
+      let allComplete = true;
+      let anyActivity = completedCheckIns.length > 0;
+      
+      // For each user with goals, check if all their goals are satisfied
+      goalsByUser.forEach((userGoals, userId) => {
+        userGoals.forEach(goal => {
+          if (goal.frequency === 'daily') {
+            // Daily goal: must be completed on this specific day
+            const isCompleted = completedCheckIns.some(
+              c => c.userId === userId && c.goalId === goal.id
             );
-            
-            if (!userCompletedAll) {
+            if (!isCompleted) {
               allComplete = false;
             }
-          });
-          
-          // If no goals exist yet, consider partial if any check-in exists
-          if (goals.length === 0) {
-            allComplete = false;
+          } else if (goal.frequency === 'weekly') {
+            // Weekly goal: check if target is met by end of week
+            const weekStartKey = getDateKey(getWeekStart(date));
+            const key = `${goal.id}-${weekStartKey}`;
+            const weekCount = weeklyCheckInCounts.get(key) || 0;
+            const target = goal.weeklyTarget || 1;
+            
+            if (isWeekComplete) {
+              // Week is over - evaluate final result
+              if (weekCount < target) {
+                allComplete = false;
+              }
+            } else {
+              // Week is still in progress
+              // For mid-week days, we can't say "incomplete" yet
+              // Show as complete if target is already met, otherwise partial
+              if (weekCount < target) {
+                // Target not yet met, but week isn't over
+                // Don't mark as failed, but also not fully complete
+                // We'll treat this as "in progress" 
+                allComplete = false;
+              }
+              // If weekCount >= target, user has already met the goal
+            }
+            
+            // Track if there's any weekly goal activity
+            if (weekCount > 0) {
+              anyActivity = true;
+            }
           }
-          
-          statuses.set(dateKey, allComplete ? 'complete' : 'partial');
-        }
+        });
+      });
+      
+      // If no goals exist yet, consider partial if any check-in exists
+      if (goals.length === 0) {
+        allComplete = false;
+      }
+      
+      // Determine final status
+      if (allComplete && goals.length > 0) {
+        statuses.set(dateKey, 'complete');
+      } else if (anyActivity) {
+        statuses.set(dateKey, 'partial');
+      } else {
+        statuses.set(dateKey, 'none');
       }
     }
     

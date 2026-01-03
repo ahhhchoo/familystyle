@@ -24,6 +24,8 @@ export interface Family {
   createdBy: string; // UID of creator
 }
 
+export type GoalFrequency = 'daily' | 'weekly';
+
 export interface Goal {
   id: string;
   userId: string;
@@ -31,6 +33,8 @@ export interface Goal {
   title: string;
   createdAt: TimestampOrDate;
   isActive: boolean;
+  frequency: GoalFrequency; // 'daily' or 'weekly'
+  weeklyTarget?: number; // Required if frequency is 'weekly' (e.g., 3 times per week)
 }
 
 export interface DailyCheckIn {

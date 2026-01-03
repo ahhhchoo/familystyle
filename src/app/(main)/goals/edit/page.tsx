@@ -2,20 +2,25 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { Goal } from '@/types';
+import { Goal, GoalFrequency } from '@/types';
 
 export default function EditGoalsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [newGoalTitle, setNewGoalTitle] = useState('');
+  const [newGoalFrequency, setNewGoalFrequency] = useState<GoalFrequency>('daily');
+  const [newGoalWeeklyTarget, setNewGoalWeeklyTarget] = useState(3);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [editingFrequency, setEditingFrequency] = useState<GoalFrequency>('daily');
+  const [editingWeeklyTarget, setEditingWeeklyTarget] = useState(3);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -54,8 +59,13 @@ export default function EditGoalsPage() {
         title: newGoalTitle.trim(),
         createdAt: serverTimestamp(),
         isActive: true,
+        frequency: newGoalFrequency,
+        ...(newGoalFrequency === 'weekly' && { weeklyTarget: newGoalWeeklyTarget }),
       });
       setNewGoalTitle('');
+      setNewGoalFrequency('daily');
+      setNewGoalWeeklyTarget(3);
+      setShowAddForm(false);
     } catch (error) {
       console.error('Error adding goal:', error);
     }
@@ -69,6 +79,8 @@ export default function EditGoalsPage() {
     try {
       await updateDoc(doc(db, 'goals', goalId), {
         title: editingTitle.trim(),
+        frequency: editingFrequency,
+        ...(editingFrequency === 'weekly' ? { weeklyTarget: editingWeeklyTarget } : { weeklyTarget: null }),
       });
       setEditingGoalId(null);
       setEditingTitle('');
@@ -94,6 +106,15 @@ export default function EditGoalsPage() {
   const startEditing = (goal: Goal) => {
     setEditingGoalId(goal.id);
     setEditingTitle(goal.title);
+    setEditingFrequency(goal.frequency || 'daily');
+    setEditingWeeklyTarget(goal.weeklyTarget || 3);
+  };
+
+  const getFrequencyLabel = (goal: Goal) => {
+    if (goal.frequency === 'weekly') {
+      return `${goal.weeklyTarget}x per week`;
+    }
+    return 'Daily';
   };
 
   if (authLoading || loading) {
@@ -138,36 +159,88 @@ export default function EditGoalsPage() {
         {goals.map((goal) => (
           <div
             key={goal.id}
-            className="w-full bg-[var(--gray-dark)] rounded-2xl px-5 py-4 
-                     flex items-center justify-between gap-3"
+            className="w-full bg-[var(--gray-dark)] rounded-2xl px-5 py-4"
           >
             {editingGoalId === goal.id ? (
-              <>
+              <div className="flex flex-col gap-4">
                 <input
                   type="text"
                   value={editingTitle}
                   onChange={(e) => setEditingTitle(e.target.value)}
                   autoFocus
-                  className="flex-1 bg-transparent text-white outline-none"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleUpdateGoal(goal.id);
-                    if (e.key === 'Escape') {
+                  className="w-full bg-[var(--gray-card)] rounded-xl px-4 py-3 text-white outline-none"
+                  placeholder="Goal name"
+                />
+                
+                {/* Frequency selector */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingFrequency('daily')}
+                    className={`flex-1 py-3 rounded-xl font-medium transition-colors
+                      ${editingFrequency === 'daily' 
+                        ? 'bg-[var(--orange)] text-white' 
+                        : 'bg-[var(--gray-card)] text-[var(--gray-text)]'}`}
+                  >
+                    Daily
+                  </button>
+                  <button
+                    onClick={() => setEditingFrequency('weekly')}
+                    className={`flex-1 py-3 rounded-xl font-medium transition-colors
+                      ${editingFrequency === 'weekly' 
+                        ? 'bg-[var(--orange)] text-white' 
+                        : 'bg-[var(--gray-card)] text-[var(--gray-text)]'}`}
+                  >
+                    Weekly
+                  </button>
+                </div>
+
+                {/* Weekly target selector */}
+                {editingFrequency === 'weekly' && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-[var(--gray-text)]">Times per week:</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setEditingWeeklyTarget(Math.max(1, editingWeeklyTarget - 1))}
+                        className="w-10 h-10 rounded-full bg-[var(--gray-card)] text-white flex items-center justify-center"
+                      >
+                        -
+                      </button>
+                      <span className="text-white text-xl font-medium w-8 text-center">{editingWeeklyTarget}</span>
+                      <button
+                        onClick={() => setEditingWeeklyTarget(Math.min(7, editingWeeklyTarget + 1))}
+                        className="w-10 h-10 rounded-full bg-[var(--gray-card)] text-white flex items-center justify-center"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
                       setEditingGoalId(null);
                       setEditingTitle('');
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => handleUpdateGoal(goal.id)}
-                  disabled={saving}
-                  className="text-[var(--green)] font-medium"
-                >
-                  Save
-                </button>
-              </>
+                    }}
+                    className="flex-1 py-3 bg-[var(--gray-card)] text-white rounded-xl font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleUpdateGoal(goal.id)}
+                    disabled={saving}
+                    className="flex-1 py-3 bg-[var(--green)] text-white rounded-xl font-medium"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
             ) : (
-              <>
-                <span className="flex-1 text-white font-medium">{goal.title}</span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1">
+                  <span className="text-white font-medium">{goal.title}</span>
+                  <p className="text-[var(--gray-text)] text-sm">{getFrequencyLabel(goal)}</p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => startEditing(goal)}
@@ -187,35 +260,100 @@ export default function EditGoalsPage() {
                     </svg>
                   </button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         ))}
       </div>
 
       {/* Add New Goal */}
-      <div className="bg-[var(--gray-dark)] rounded-2xl px-5 py-4 flex items-center gap-3">
-        <input
-          type="text"
-          value={newGoalTitle}
-          onChange={(e) => setNewGoalTitle(e.target.value)}
-          placeholder="Add a new goal..."
-          className="flex-1 bg-transparent text-white placeholder:text-[var(--gray-text)] outline-none"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleAddGoal();
-          }}
-        />
+      {showAddForm ? (
+        <div className="bg-[var(--gray-dark)] rounded-2xl px-5 py-4 flex flex-col gap-4">
+          <input
+            type="text"
+            value={newGoalTitle}
+            onChange={(e) => setNewGoalTitle(e.target.value)}
+            autoFocus
+            placeholder="Goal name"
+            className="w-full bg-[var(--gray-card)] rounded-xl px-4 py-3 text-white placeholder:text-[var(--gray-text)] outline-none"
+          />
+          
+          {/* Frequency selector */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setNewGoalFrequency('daily')}
+              className={`flex-1 py-3 rounded-xl font-medium transition-colors
+                ${newGoalFrequency === 'daily' 
+                  ? 'bg-[var(--orange)] text-white' 
+                  : 'bg-[var(--gray-card)] text-[var(--gray-text)]'}`}
+            >
+              Daily
+            </button>
+            <button
+              onClick={() => setNewGoalFrequency('weekly')}
+              className={`flex-1 py-3 rounded-xl font-medium transition-colors
+                ${newGoalFrequency === 'weekly' 
+                  ? 'bg-[var(--orange)] text-white' 
+                  : 'bg-[var(--gray-card)] text-[var(--gray-text)]'}`}
+            >
+              Weekly
+            </button>
+          </div>
+
+          {/* Weekly target selector */}
+          {newGoalFrequency === 'weekly' && (
+            <div className="flex items-center gap-3">
+              <span className="text-[var(--gray-text)]">Times per week:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setNewGoalWeeklyTarget(Math.max(1, newGoalWeeklyTarget - 1))}
+                  className="w-10 h-10 rounded-full bg-[var(--gray-card)] text-white flex items-center justify-center"
+                >
+                  -
+                </button>
+                <span className="text-white text-xl font-medium w-8 text-center">{newGoalWeeklyTarget}</span>
+                <button
+                  onClick={() => setNewGoalWeeklyTarget(Math.min(7, newGoalWeeklyTarget + 1))}
+                  className="w-10 h-10 rounded-full bg-[var(--gray-card)] text-white flex items-center justify-center"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setShowAddForm(false);
+                setNewGoalTitle('');
+                setNewGoalFrequency('daily');
+                setNewGoalWeeklyTarget(3);
+              }}
+              className="flex-1 py-3 bg-[var(--gray-card)] text-white rounded-xl font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAddGoal}
+              disabled={!newGoalTitle.trim() || saving}
+              className="flex-1 py-3 bg-[var(--orange)] text-white rounded-xl font-medium disabled:opacity-50"
+            >
+              Add Goal
+            </button>
+          </div>
+        </div>
+      ) : (
         <button
-          onClick={handleAddGoal}
-          disabled={!newGoalTitle.trim() || saving}
-          className="w-10 h-10 rounded-full bg-[var(--orange)] flex items-center justify-center
-                   disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => setShowAddForm(true)}
+          className="w-full bg-[var(--gray-dark)] rounded-2xl px-5 py-4 flex items-center justify-center gap-2 text-[var(--gray-text)]"
         >
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
+          Add a new goal
         </button>
-      </div>
+      )}
     </div>
   );
 }

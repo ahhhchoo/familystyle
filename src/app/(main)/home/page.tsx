@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSwipeable } from 'react-swipeable';
-import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import PersonCard from '@/components/PersonCard';
-import { FamilyMemberStatus, DailyCheckIn, User, TimestampOrDate } from '@/types';
+import { FamilyMemberStatus, DailyCheckIn, User, TimestampOrDate, Goal } from '@/types';
 
 // Helper to convert Firestore timestamp to milliseconds
 const getTimeInMs = (timestamp: TimestampOrDate): number => {
@@ -19,6 +19,33 @@ const getTimeInMs = (timestamp: TimestampOrDate): number => {
     return timestamp.getTime();
   }
   return 0;
+};
+
+// Helper: Get the Monday of the week for a given date
+const getWeekStart = (date: Date): Date => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Helper: Get date key in YYYY-MM-DD format
+const getDateKey = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+// Helper: Get all dates in a week (Mon-Sun) as date keys
+const getWeekDates = (anyDateInWeek: Date): string[] => {
+  const weekStart = getWeekStart(anyDateInWeek);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    dates.push(getDateKey(d));
+  }
+  return dates;
 };
 
 export default function HomePage() {
@@ -72,20 +99,38 @@ export default function HomePage() {
         const familyData = familySnap.data();
         const memberIds = familyData.members as string[];
 
-        // Listen to check-ins for today
+        // Fetch all goals for the family
+        const goalsQuery = query(
+          collection(db, 'goals'),
+          where('familyId', '==', user.familyId),
+          where('isActive', '==', true)
+        );
+        const goalsSnapshot = await getDocs(goalsQuery);
+        const allGoals = goalsSnapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as Goal[];
+
+        // Get this week's dates for weekly goal calculation
+        const weekDates = getWeekDates(today);
+
+        // Listen to check-ins for today AND this week (for weekly goals)
         const checkInsQuery = query(
           collection(db, 'checkIns'),
-          where('familyId', '==', user.familyId),
-          where('date', '==', todayKey)
+          where('familyId', '==', user.familyId)
         );
 
         const unsubscribeCheckIns = onSnapshot(checkInsQuery, async (checkInsSnap) => {
-          const checkIns = checkInsSnap.docs.map(doc => ({
+          const allCheckIns = checkInsSnap.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           })) as DailyCheckIn[];
           
-
+          // Filter for today's check-ins
+          const todayCheckIns = allCheckIns.filter(c => c.date === todayKey);
+          
+          // Filter for this week's check-ins
+          const weekCheckIns = allCheckIns.filter(c => weekDates.includes(c.date));
 
           // Fetch all member data
           const membersData: FamilyMemberStatus[] = [];
@@ -96,16 +141,41 @@ export default function HomePage() {
             
             if (memberSnap.exists()) {
               const memberData = memberSnap.data() as User;
+              const memberGoals = allGoals.filter(g => g.userId === memberId);
               
-              // For now, calculate from check-ins
-              const memberCheckIns = checkIns.filter(c => c.userId === memberId);
-              const completedCount = memberCheckIns.filter(c => c.completed).length;
-              const totalGoals = memberCheckIns.length || 0;
+              // Calculate completion status for each goal type
+              let dailyGoalsComplete = 0;
+              let dailyGoalsTotal = 0;
+              let weeklyGoalsComplete = 0;
+              let weeklyGoalsTotal = 0;
+              
+              memberGoals.forEach(goal => {
+                if (goal.frequency === 'daily') {
+                  dailyGoalsTotal++;
+                  const isCompleted = todayCheckIns.some(
+                    c => c.userId === memberId && c.goalId === goal.id && c.completed
+                  );
+                  if (isCompleted) dailyGoalsComplete++;
+                } else if (goal.frequency === 'weekly') {
+                  weeklyGoalsTotal++;
+                  const weekCount = weekCheckIns.filter(
+                    c => c.userId === memberId && c.goalId === goal.id && c.completed
+                  ).length;
+                  const target = goal.weeklyTarget || 1;
+                  if (weekCount >= target) weeklyGoalsComplete++;
+                }
+              });
+              
+              const totalGoals = dailyGoalsTotal + weeklyGoalsTotal;
+              const completedGoals = dailyGoalsComplete + weeklyGoalsComplete;
+              const isComplete = totalGoals > 0 && completedGoals === totalGoals;
 
-              // Find latest completion time
-              const completedCheckIns = memberCheckIns.filter(c => c.completed && c.completedAt);
-              const latestCompletion = completedCheckIns.length > 0
-                ? completedCheckIns.reduce((latest, current) => {
+              // Find latest completion time from today's check-ins
+              const memberTodayCompletedCheckIns = todayCheckIns.filter(
+                c => c.userId === memberId && c.completed && c.completedAt
+              );
+              const latestCompletion = memberTodayCompletedCheckIns.length > 0
+                ? memberTodayCompletedCheckIns.reduce((latest, current) => {
                     const currentTime = getTimeInMs(current.completedAt);
                     const latestTime = getTimeInMs(latest.completedAt);
                     return currentTime > latestTime ? current : latest;
@@ -116,9 +186,9 @@ export default function HomePage() {
                 uid: memberId,
                 displayName: memberData.displayName,
                 photoURL: memberData.photoURL,
-                isComplete: totalGoals > 0 && completedCount === totalGoals,
+                isComplete,
                 completedAt: latestCompletion?.completedAt || null,
-                goalsCompleted: completedCount,
+                goalsCompleted: completedGoals,
                 totalGoals: totalGoals,
               });
             }
