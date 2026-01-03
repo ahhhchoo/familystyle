@@ -315,7 +315,7 @@ export default function OverviewPage() {
               key={dateKey}
               className={`aspect-square rounded-full ${bgColor}`}
               style={isToday ? {
-                animation: 'pulse-dot 2.8s ease-in-out infinite',
+                animation: 'pulse-dot 1.8s ease-in-out infinite',
               } : undefined}
               title={`${dateKey}: ${status}`}
             />

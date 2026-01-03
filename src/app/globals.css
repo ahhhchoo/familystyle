@@ -97,18 +97,18 @@ html {
 }
 
 /* Gentle pulse animation for today's dot */
-/* Total duration: 2.8s (800ms pulse + 2s pause) */
-/* Pulse happens in first ~29% of animation (800ms / 2800ms) */
+/* Total duration: 1.8s (800ms pulse + 1s pause) */
+/* Pulse happens in first ~44% of animation (800ms / 1800ms) */
 @keyframes pulse-dot {
   0% {
     opacity: 1;
     transform: scale(1);
   }
-  14% {
+  22% {
     opacity: 0.7;
     transform: scale(0.9);
   }
-  29% {
+  44% {
     opacity: 1;
     transform: scale(1);
   }
