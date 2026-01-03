@@ -9,25 +9,6 @@ interface AnimatedNumberProps {
   className?: string;
 }
 
-// Single digit roller
-function Digit({ value }: { value: number }) {
-  return (
-    <span className="inline-block h-[1em] overflow-hidden align-top">
-      <span 
-        className="flex flex-col"
-        style={{ 
-          transform: `translateY(${-value * 1}em)`,
-          transition: 'transform 0.5s cubic-bezier(0.33, 1, 0.68, 1)',
-        }}
-      >
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-          <span key={n} className="h-[1em] leading-[1em]">{n}</span>
-        ))}
-      </span>
-    </span>
-  );
-}
-
 export default function AnimatedNumber({ 
   value, 
   duration = 1000, 
@@ -62,21 +43,9 @@ export default function AnimatedNumber({
     requestAnimationFrame(animate);
   }, [value, duration]);
 
-  // Pad to match final value's digit count to prevent layout shift
-  const maxDigits = String(value).length;
-  const paddedValue = String(displayValue).padStart(maxDigits, ' ');
-  const digits = paddedValue.split('');
-
   return (
     <span className={className}>
-      {digits.map((digit, i) => (
-        digit === ' ' ? (
-          <span key={`${maxDigits}-${i}`} className="inline-block" style={{ width: '0.6em' }} />
-        ) : (
-          <Digit key={`${maxDigits}-${i}`} value={parseInt(digit)} />
-        )
-      ))}
-      {suffix}
+      {displayValue}{suffix}
     </span>
   );
 }
