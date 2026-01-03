@@ -96,18 +96,18 @@ export default function GoalItem({
             />
           </svg>
         ) : (
-          /* Smiley face icon when not completed */
+          /* Neutral face icon when not completed - exact SVG from Figma */
           <svg 
-            className="w-6 h-6 text-[var(--gray-text)]"
+            className="w-6 h-6"
             fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor" 
-            strokeWidth={2}
+            viewBox="0 0 21.5 21.5"
+            stroke="white"
+            strokeOpacity={0.6}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="9" cy="10" r="1" fill="currentColor" />
-            <circle cx="15" cy="10" r="1" fill="currentColor" />
-            <path strokeLinecap="round" d="M8 14s1.5 2 4 2 4-2 4-2" />
+            <path d="M8.25 8.75C8.25 9.02614 8.02614 9.25 7.75 9.25C7.47386 9.25 7.25 9.02614 7.25 8.75M8.25 8.75C8.25 8.47386 8.02614 8.25 7.75 8.25C7.47386 8.25 7.25 8.47386 7.25 8.75M8.25 8.75H7.25M14.25 8.75C14.25 9.02614 14.0261 9.25 13.75 9.25C13.4739 9.25 13.25 9.02614 13.25 8.75M14.25 8.75C14.25 8.47386 14.0261 8.25 13.75 8.25C13.4739 8.25 13.25 8.47386 13.25 8.75M14.25 8.75H13.25M13.75 13.75H7.75M10.75 20.75C5.22715 20.75 0.75 16.2728 0.75 10.75C0.75 5.22715 5.22715 0.75 10.75 0.75C16.2728 0.75 20.75 5.22715 20.75 10.75C20.75 16.2728 16.2728 20.75 10.75 20.75Z" />
           </svg>
         )}
       </div>
