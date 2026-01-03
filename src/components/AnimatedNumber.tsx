@@ -9,6 +9,25 @@ interface AnimatedNumberProps {
   className?: string;
 }
 
+// Single digit roller
+function Digit({ value }: { value: number }) {
+  return (
+    <span className="inline-block h-[1em] overflow-hidden align-top">
+      <span 
+        className="flex flex-col"
+        style={{ 
+          transform: `translateY(${-value * 1}em)`,
+          transition: 'transform 0.5s cubic-bezier(0.33, 1, 0.68, 1)',
+        }}
+      >
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+          <span key={n} className="h-[1em] leading-[1em]">{n}</span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
 export default function AnimatedNumber({ 
   value, 
   duration = 1000, 
@@ -43,30 +62,13 @@ export default function AnimatedNumber({
     requestAnimationFrame(animate);
   }, [value, duration]);
 
-  // Pad to match final value's digit count to prevent layout shift
-  const maxDigits = String(value).length;
-  const paddedValue = String(displayValue).padStart(maxDigits, '0');
-  const digits = paddedValue.split('');
+  // Split into individual digits
+  const digits = String(displayValue).split('').map(d => parseInt(d));
 
   return (
-    <span className={`inline-block overflow-hidden ${className}`}>
+    <span className={className}>
       {digits.map((digit, i) => (
-        <span 
-          key={`${maxDigits}-${i}`} 
-          className="inline-block h-[1em] overflow-hidden align-top"
-        >
-          <span 
-            className="block"
-            style={{ 
-              transform: `translateY(${-parseInt(digit) * 100}%)`,
-              transition: 'transform 0.4s cubic-bezier(0.33, 1, 0.68, 1)',
-            }}
-          >
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-              <span key={n} className="block h-[1em] leading-none">{n}</span>
-            ))}
-          </span>
-        </span>
+        <Digit key={`${digits.length}-${i}`} value={digit} />
       ))}
       {suffix}
     </span>
