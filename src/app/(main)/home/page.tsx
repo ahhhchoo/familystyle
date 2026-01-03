@@ -205,6 +205,7 @@ export default function HomePage() {
                 uid: memberId,
                 displayName: memberData.displayName,
                 photoURL: memberData.photoURL,
+                customPhotoURL: memberData.customPhotoURL || null,
                 isComplete,
                 completedAt: latestCompletion?.completedAt || null,
                 goalsCompleted: completedGoals,

@@ -133,9 +133,9 @@ export default function PersonCard({ member, isCurrentUser = false, onClick }: P
       {/* Profile Photo */}
       <div className="flex-1 flex items-center justify-center py-4">
         <div className="relative w-24 h-24 rounded-full overflow-hidden bg-[var(--gray-card)]">
-          {member.photoURL ? (
+          {(member.customPhotoURL || member.photoURL) ? (
             <Image
-              src={member.photoURL}
+              src={member.customPhotoURL || member.photoURL || ''}
               alt={member.displayName}
               fill
               className="object-cover"

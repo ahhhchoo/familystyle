@@ -11,6 +11,7 @@ export interface User {
   email: string;
   displayName: string;
   photoURL: string | null;
+  customPhotoURL?: string | null; // Custom uploaded profile picture
   familyId: string | null;
   createdAt: TimestampOrDate;
 }
@@ -51,8 +52,20 @@ export interface FamilyMemberStatus {
   uid: string;
   displayName: string;
   photoURL: string | null;
+  customPhotoURL?: string | null;
   isComplete: boolean;
   completedAt: TimestampOrDate;
   goalsCompleted: number;
   totalGoals: number;
+}
+
+export interface MonthlyWager {
+  id: string;
+  familyId: string;
+  month: string; // YYYY-MM format (e.g., "2026-01")
+  reward: string; // The reward text (e.g., "Omakase")
+  assignedUserId: string; // User who picks the reward for this month
+  completionRate: number; // Calculated completion rate for the month (0-100)
+  createdAt: TimestampOrDate;
+  updatedAt: TimestampOrDate;
 }

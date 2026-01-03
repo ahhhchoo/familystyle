@@ -32,6 +32,13 @@
   --gray-text: #8E8E93;
   --green: #30D158;
   
+  /* Wager colors */
+  --wager-blue: #2B9CFF;
+  --wager-green: #15B347;
+  --wager-red: #FF3939;
+  --wager-yellow: #FBFF28;
+  --wager-incomplete: #202020;
+  
   --font-sf-pro: 'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-haffer: 'Haffer', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
 }

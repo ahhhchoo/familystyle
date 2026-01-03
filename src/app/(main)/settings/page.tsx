@@ -6,11 +6,13 @@ import { doc, getDoc, updateDoc, arrayRemove, collection, query, where, getDocs,
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Family, User } from '@/types';
+import ProfilePictureUpload from '@/components/ProfilePictureUpload';
 
 interface MemberInfo {
   uid: string;
   displayName: string;
   photoURL: string | null;
+  customPhotoURL?: string | null;
   email: string;
 }
 
@@ -24,6 +26,7 @@ export default function SettingsPage() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<MemberInfo | null>(null);
   const [removingMember, setRemovingMember] = useState(false);
+  const [currentUserCustomPhoto, setCurrentUserCustomPhoto] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -48,12 +51,17 @@ export default function SettingsPage() {
             const memberSnap = await getDoc(memberRef);
             if (memberSnap.exists()) {
               const data = memberSnap.data() as User;
+              // Set current user's custom photo
+              if (memberId === user.uid) {
+                setCurrentUserCustomPhoto(data.customPhotoURL || null);
+              }
               return {
                 uid: memberId,
                 displayName: data.displayName,
                 photoURL: data.photoURL,
+                customPhotoURL: data.customPhotoURL || null,
                 email: data.email,
-              };
+              } as MemberInfo;
             }
             return null;
           });
@@ -250,11 +258,11 @@ export default function SettingsPage() {
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  {member.photoURL ? (
+                  {(member.customPhotoURL || member.photoURL) ? (
                     <img 
-                      src={member.photoURL} 
+                      src={member.customPhotoURL || member.photoURL || ''} 
                       alt={member.displayName}
-                      className="w-10 h-10 rounded-full"
+                      className="w-10 h-10 rounded-full object-cover"
                     />
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-[var(--gray-card)] flex items-center justify-center">
@@ -319,6 +327,32 @@ export default function SettingsPage() {
           >
             Share Invite
           </button>
+        </div>
+      </section>
+
+      {/* Profile Picture Section */}
+      <section className="mb-8">
+        <h2 className="text-[var(--gray-text)] text-sm uppercase tracking-wide mb-3">
+          Profile Picture
+        </h2>
+        <div className="bg-[var(--gray-dark)] rounded-2xl p-5">
+          {user && (
+            <ProfilePictureUpload
+              userId={user.uid}
+              currentPhotoURL={user.photoURL}
+              customPhotoURL={currentUserCustomPhoto}
+              displayName={user.displayName}
+              onUploadComplete={(newPhotoURL) => {
+                setCurrentUserCustomPhoto(newPhotoURL || null);
+                // Update the member in the list too
+                setMembers(members.map(m => 
+                  m.uid === user.uid 
+                    ? { ...m, customPhotoURL: newPhotoURL || null }
+                    : m
+                ));
+              }}
+            />
+          )}
         </div>
       </section>
 

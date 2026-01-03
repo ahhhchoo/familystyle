@@ -3,11 +3,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSwipeable } from 'react-swipeable';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { DailyCheckIn, Goal } from '@/types';
+import { DailyCheckIn, Goal, Family, User, MonthlyWager } from '@/types';
 import AnimatedNumber from '@/components/AnimatedNumber';
+import MonthlyWagerCard from '@/components/MonthlyWagerCard';
 
 type DayStatus = 'complete' | 'partial' | 'none' | 'future';
 
@@ -55,12 +56,43 @@ const getDaysRemainingInWeek = (date: Date): number => {
   return 7 - adjustedDay;
 };
 
+// Wager colors in rotation order
+const WAGER_COLORS = ['blue', 'green', 'red', 'yellow'] as const;
+
+// Helper: Get month key in YYYY-MM format
+const getMonthKey = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+
+// Helper: Calculate months since a start date
+const getMonthsSince = (startDate: Date, targetDate: Date): number => {
+  return (targetDate.getFullYear() - startDate.getFullYear()) * 12 + 
+         (targetDate.getMonth() - startDate.getMonth());
+};
+
+// Helper: Parse Firestore timestamp or Date
+const parseTimestamp = (timestamp: any): Date | null => {
+  if (!timestamp) return null;
+  if (timestamp.seconds) {
+    return new Date(timestamp.seconds * 1000);
+  }
+  if (timestamp instanceof Date) {
+    return timestamp;
+  }
+  return new Date(timestamp);
+};
+
 export default function OverviewPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [checkIns, setCheckIns] = useState<DailyCheckIn[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [familyMemberCount, setFamilyMemberCount] = useState(0);
+  const [familyMembers, setFamilyMembers] = useState<User[]>([]);
+  const [familyCreatedAt, setFamilyCreatedAt] = useState<Date | null>(null);
+  const [monthlyWagers, setMonthlyWagers] = useState<MonthlyWager[]>([]);
+  const [currentReward, setCurrentReward] = useState('');
+  const [isEditingReward, setIsEditingReward] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Calculate days in year
@@ -94,13 +126,26 @@ export default function OverviewPage() {
 
     const fetchData = async () => {
       try {
-        // Fetch family to get member count
+        // Fetch family to get member count and creation date
         const familyRef = doc(db, 'families', user.familyId!);
         const familySnap = await getDoc(familyRef);
         if (familySnap.exists()) {
-          const familyData = familySnap.data();
-
+          const familyData = familySnap.data() as Family;
           setFamilyMemberCount(familyData.members?.length || 0);
+          setFamilyCreatedAt(parseTimestamp(familyData.createdAt));
+          
+          // Fetch all family members
+          const membersData: User[] = [];
+          for (const memberId of familyData.members || []) {
+            const memberRef = doc(db, 'users', memberId);
+            const memberSnap = await getDoc(memberRef);
+            if (memberSnap.exists()) {
+              membersData.push({ uid: memberId, ...memberSnap.data() } as User);
+            }
+          }
+          // Sort by reverse alphabetical order by first name
+          membersData.sort((a, b) => b.displayName.localeCompare(a.displayName));
+          setFamilyMembers(membersData);
         }
 
         // Fetch all goals for the family
@@ -117,7 +162,7 @@ export default function OverviewPage() {
 
         setGoals(goalsData);
 
-        // Fetch all check-ins for the family (no date filter for debugging)
+        // Fetch all check-ins for the family
         const checkInsQuery = query(
           collection(db, 'checkIns'),
           where('familyId', '==', user.familyId)
@@ -128,10 +173,28 @@ export default function OverviewPage() {
           id: d.id,
           ...d.data()
         })) as DailyCheckIn[];
-        
-
 
         setCheckIns(checkInsData);
+
+        // Fetch monthly wagers
+        const wagersQuery = query(
+          collection(db, 'monthlyWagers'),
+          where('familyId', '==', user.familyId)
+        );
+        const wagersSnapshot = await getDocs(wagersQuery);
+        const wagersData = wagersSnapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as MonthlyWager[];
+        setMonthlyWagers(wagersData);
+
+        // Set current month's reward if exists
+        const currentMonthKey = getMonthKey(new Date());
+        const currentWager = wagersData.find(w => w.month === currentMonthKey);
+        if (currentWager) {
+          setCurrentReward(currentWager.reward || '');
+        }
+
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -266,6 +329,116 @@ export default function OverviewPage() {
   // Generate grid of days (20 columns)
   const columns = 20;
 
+  // Calculate monthly data for wager section
+  const monthlyData = useMemo(() => {
+    // If no family members yet, return empty
+    if (familyMembers.length === 0) return [];
+    
+    // Use familyCreatedAt or default to current month if not available
+    const effectiveStartDate = familyCreatedAt || new Date();
+    
+    const result: Array<{
+      month: string;
+      colorIndex: number;
+      assignedUser: User;
+      completionRate: number;
+      dayStatuses: Map<string, 'complete' | 'partial' | 'none' | 'future'>;
+    }> = [];
+    
+    const currentMonth = new Date();
+    const startMonth = new Date(effectiveStartDate.getFullYear(), effectiveStartDate.getMonth(), 1);
+    
+    // Generate data for each month from family creation to current month
+    let monthIterator = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    
+    // Limit to prevent infinite loops - max 24 months back
+    let monthCount = 0;
+    const maxMonths = 24;
+    
+    while (monthIterator >= startMonth && monthCount < maxMonths) {
+      const monthKey = getMonthKey(monthIterator);
+      const monthsSinceStart = getMonthsSince(startMonth, monthIterator);
+      const colorIndex = monthsSinceStart % 4;
+      
+      // Assign user based on rotation (reverse alphabetical, rotating monthly)
+      const userIndex = monthsSinceStart % familyMembers.length;
+      const assignedUser = familyMembers[userIndex];
+      
+      // Calculate day statuses for this month
+      const monthDayStatuses = new Map<string, 'complete' | 'partial' | 'none' | 'future'>();
+      const daysInMonth = new Date(monthIterator.getFullYear(), monthIterator.getMonth() + 1, 0).getDate();
+      
+      let completeDays = 0;
+      let totalDays = 0;
+      
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateKey = `${monthIterator.getFullYear()}-${String(monthIterator.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const status = dayStatuses.get(dateKey) || 'future';
+        monthDayStatuses.set(dateKey, status);
+        
+        if (status !== 'future') {
+          totalDays++;
+          if (status === 'complete') {
+            completeDays++;
+          }
+        }
+      }
+      
+      const completionRate = totalDays > 0 ? Math.round((completeDays / totalDays) * 100) : 0;
+      
+      result.push({
+        month: monthKey,
+        colorIndex,
+        assignedUser,
+        completionRate,
+        dayStatuses: monthDayStatuses,
+      });
+      
+      // Move to previous month
+      monthIterator = new Date(monthIterator.getFullYear(), monthIterator.getMonth() - 1, 1);
+      monthCount++;
+    }
+    
+    return result;
+  }, [familyCreatedAt, familyMembers, dayStatuses]);
+
+  // Get current month's assigned user
+  const currentMonthData = monthlyData.find(m => m.month === getMonthKey(new Date()));
+  const isCurrentUserAssigned = currentMonthData?.assignedUser?.uid === user?.uid;
+
+  // Handle reward save
+  const handleSaveReward = async () => {
+    if (!user?.familyId || !currentMonthData) return;
+    
+    const currentMonthKey = getMonthKey(new Date());
+    const wagerRef = doc(db, 'monthlyWagers', `${user.familyId}_${currentMonthKey}`);
+    
+    try {
+      const existingWager = monthlyWagers.find(w => w.month === currentMonthKey);
+      
+      if (existingWager) {
+        await updateDoc(wagerRef, {
+          reward: currentReward,
+          updatedAt: new Date(),
+        });
+      } else {
+        await setDoc(wagerRef, {
+          familyId: user.familyId,
+          month: currentMonthKey,
+          reward: currentReward,
+          assignedUserId: currentMonthData.assignedUser.uid,
+          completionRate: currentMonthData.completionRate,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+      
+      setIsEditingReward(false);
+    } catch (error) {
+      console.error('Error saving reward:', error);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black">
@@ -275,67 +448,178 @@ export default function OverviewPage() {
   }
 
   return (
-    <div {...swipeHandlers} className="min-h-screen bg-black px-5 pt-24 pb-8">
-      {/* Header */}
-      <header className="mb-8">
-        <h1 className="text-5xl font-bold text-white">
-          <AnimatedNumber value={successRate} suffix="%" />
-        </h1>
-        <div className="flex items-center justify-between mt-1">
-          <p className="text-[var(--gray-text)] text-sm">family success rate</p>
-          <p className="text-white font-medium">{daysRemaining} more days</p>
-        </div>
-      </header>
+    <div {...swipeHandlers} className="h-screen overflow-y-auto snap-y snap-mandatory bg-black">
+      {/* First Section - Year Overview */}
+      <section id="year-section" className="min-h-screen snap-start px-5 pt-24 pb-8">
+        {/* Header */}
+        <header className="mb-8">
+          <h1 className="text-5xl font-bold text-white">
+            <AnimatedNumber value={successRate} suffix="%" />
+          </h1>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-[var(--gray-text)] text-sm">family success rate</p>
+            <p className="text-white font-medium">{daysRemaining} more days</p>
+          </div>
+        </header>
 
-      {/* Year Grid */}
-      <div 
-        className="grid gap-[6px]"
-        style={{ 
-          gridTemplateColumns: `repeat(${columns}, 1fr)`,
-        }}
-      >
-        {Array.from({ length: totalDays }).map((_, index) => {
-          const date = new Date(year, 0, index + 1);
-          const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-          const status = dayStatuses.get(dateKey) || 'future';
-          
-          const isToday = dateKey === todayKey;
-          
-          // Color based on status
-          const bgColor = status === 'complete' 
-            ? 'bg-[var(--green)]' 
-            : status === 'partial'
-              ? 'bg-[var(--orange)]'
-              : status === 'none'
-                ? 'bg-[var(--gray-card)]'
-                : 'bg-[var(--gray-dark)]';
-          
-          return (
-            <div
-              key={dateKey}
-              className={`aspect-square rounded-full ${bgColor}`}
-              style={isToday ? {
-                animation: 'pulse-dot 1.8s ease-in-out infinite',
-              } : undefined}
-              title={`${dateKey}: ${status}`}
-            />
-          );
-        })}
-      </div>
-
-      {/* Home Button - Fixed at bottom left */}
-      <div className="fixed bottom-8 left-4">
-        <button 
-          onClick={() => router.push('/home')}
-          className="flex items-center gap-2 px-5 py-3 border border-white/20 rounded-full 
-                     text-white font-medium hover:bg-white/10 transition-colors"
+        {/* Year Grid */}
+        <div 
+          className="grid gap-[6px]"
+          style={{ 
+            gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          }}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 16l-4-4m0 0l4-4m-4 4h18" />
-          </svg>
-          Home
-        </button>
-      </div>
+          {Array.from({ length: totalDays }).map((_, index) => {
+            const date = new Date(year, 0, index + 1);
+            const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            const status = dayStatuses.get(dateKey) || 'future';
+            
+            const isToday = dateKey === todayKey;
+            
+            // Color based on status
+            const bgColor = status === 'complete' 
+              ? 'bg-[var(--green)]' 
+              : status === 'partial'
+                ? 'bg-[var(--orange)]'
+                : status === 'none'
+                  ? 'bg-[var(--gray-card)]'
+                  : 'bg-[var(--gray-dark)]';
+            
+            return (
+              <div
+                key={dateKey}
+                className={`aspect-square rounded-full ${bgColor}`}
+                style={isToday ? {
+                  animation: 'pulse-dot 1.8s ease-in-out infinite',
+                } : undefined}
+                title={`${dateKey}: ${status}`}
+              />
+            );
+          })}
+        </div>
+
+        {/* Scroll indicator */}
+        <div className="flex justify-center mt-8">
+          <button 
+            onClick={() => {
+              document.getElementById('wager-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center text-[var(--gray-text)] animate-bounce"
+          >
+            <span className="text-xs mb-1">Monthly Wager</span>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Home Button - Fixed at bottom left */}
+        <div className="fixed bottom-8 left-4 z-10">
+          <button 
+            onClick={() => router.push('/home')}
+            className="flex items-center gap-2 px-5 py-3 border border-white/20 rounded-full 
+                       text-white font-medium hover:bg-white/10 transition-colors bg-black/50 backdrop-blur-sm"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+            </svg>
+            Home
+          </button>
+        </div>
+      </section>
+
+      {/* Second Section - Monthly Wager */}
+      <section id="wager-section" className="min-h-screen snap-start px-5 pt-16 pb-8">
+        {/* Header */}
+        <header className="mb-6">
+          <h1 className="text-[32px] font-black text-white leading-[24px] mb-2">
+            Monthly wager
+          </h1>
+          {/* Reward - editable by assigned user */}
+          {isCurrentUserAssigned ? (
+            <div className="flex items-center gap-2">
+              {isEditingReward ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[16px] font-semibold text-[rgba(255,255,255,0.6)]">Reward:</span>
+                  <input
+                    type="text"
+                    value={currentReward}
+                    onChange={(e) => setCurrentReward(e.target.value)}
+                    placeholder="Enter reward..."
+                    className="bg-transparent border-b border-white/30 text-[16px] font-semibold text-[rgba(255,255,255,0.6)] 
+                               focus:outline-none focus:border-white/60 px-1"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveReward}
+                    className="text-[var(--wager-blue)] text-sm font-medium"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setIsEditingReward(false)}
+                    className="text-[var(--gray-text)] text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsEditingReward(true)}
+                  className="text-[16px] font-semibold text-[rgba(255,255,255,0.6)] hover:text-white transition-colors"
+                >
+                  Reward: {currentReward || 'Tap to set...'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-[16px] font-semibold text-[rgba(255,255,255,0.6)]">
+              Reward: {currentReward || 'Not set'}
+            </p>
+          )}
+        </header>
+
+        {/* Monthly Wager Cards */}
+        <div className="flex flex-col gap-8 overflow-y-auto pb-24">
+          {monthlyData.map((monthData) => (
+            <MonthlyWagerCard
+              key={monthData.month}
+              month={monthData.month}
+              completionRate={monthData.completionRate}
+              assignedUser={{
+                displayName: monthData.assignedUser.displayName,
+                photoURL: monthData.assignedUser.customPhotoURL || monthData.assignedUser.photoURL,
+              }}
+              dayStatuses={monthData.dayStatuses}
+              colorIndex={monthData.colorIndex}
+              isCurrentMonth={monthData.month === getMonthKey(new Date())}
+            />
+          ))}
+          
+          {monthlyData.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-[var(--gray-text)]">
+                No monthly data available yet.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Scroll up indicator */}
+        <div className="flex justify-center mt-4">
+          <button 
+            onClick={() => {
+              document.getElementById('year-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center text-[var(--gray-text)]"
+          >
+            <svg className="w-5 h-5 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+            <span className="text-xs mt-1">Back to year</span>
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
