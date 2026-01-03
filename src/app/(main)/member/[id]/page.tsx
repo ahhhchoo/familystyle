@@ -287,7 +287,7 @@ export default function MemberPage({ params }: PageProps) {
   return (
     <div className="h-screen overflow-y-auto snap-y snap-mandatory bg-black">
       {/* First Section - Goals */}
-      <section className="min-h-screen snap-start px-4 pt-16 pb-8">
+      <section id="goals-section" className="min-h-screen snap-start px-4 pt-16 pb-8">
         {/* Header */}
         <header className="flex items-center justify-between mb-4">
           <button
@@ -448,12 +448,17 @@ export default function MemberPage({ params }: PageProps) {
 
         {/* Scroll up indicator */}
         <div className="flex justify-center mt-8">
-          <div className="flex flex-col items-center text-[var(--gray-text)]">
+          <button 
+            onClick={() => {
+              document.getElementById('goals-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center text-[var(--gray-text)]"
+          >
             <svg className="w-5 h-5 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
             <span className="text-xs mt-1">Back to goals</span>
-          </div>
+          </button>
         </div>
       </section>
     </div>
