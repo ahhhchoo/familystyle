@@ -53,21 +53,30 @@ export default function ProfilePictureUpload({
     // Upload to Firebase Storage
     setIsUploading(true);
     try {
-      const storageRef = ref(storage, `profile-pictures/${userId}/${Date.now()}_${file.name}`);
+      console.log('Starting upload for user:', userId);
+      const storageRef = ref(storage, `profilePhotos/${userId}`);
+      console.log('Storage ref created:', storageRef.fullPath);
+      
       const snapshot = await uploadBytes(storageRef, file);
+      console.log('Upload complete, getting download URL...');
+      
       const downloadURL = await getDownloadURL(snapshot.ref);
+      console.log('Download URL:', downloadURL);
 
       // Update user document in Firestore
       const userRef = doc(db, 'users', userId);
+      console.log('Updating Firestore document...');
       await updateDoc(userRef, {
         customPhotoURL: downloadURL,
       });
+      console.log('Firestore update complete!');
 
       onUploadComplete?.(downloadURL);
       setPreviewURL(null);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error uploading profile picture:', error);
-      alert('Failed to upload image. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to upload image: ${errorMessage}`);
       setPreviewURL(null);
     } finally {
       setIsUploading(false);

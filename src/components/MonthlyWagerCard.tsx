@@ -54,59 +54,57 @@ export default function MonthlyWagerCard({
   // Scroll-based wiggle animation
   useEffect(() => {
     let ticking = false;
-    let lastScrollY = 0;
+    let lastScrollTop = 0;
+    let decayTimeout: NodeJS.Timeout;
 
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
       if (!ticking) {
         requestAnimationFrame(() => {
-          const currentScrollY = window.scrollY;
-          const scrollDelta = currentScrollY - lastScrollY;
+          const target = e.target as HTMLElement;
+          const currentScrollTop = target.scrollTop || window.scrollY;
+          const scrollDelta = currentScrollTop - lastScrollTop;
           
-          // Calculate a value between -1 and 1 based on scroll velocity
-          const normalizedDelta = Math.max(-1, Math.min(1, scrollDelta / 20));
-          setScrollProgress(normalizedDelta);
+          // Accumulate scroll delta for more noticeable effect
+          // Use a smaller divisor to amplify the effect
+          const normalizedDelta = Math.max(-1, Math.min(1, scrollDelta / 2));
           
-          lastScrollY = currentScrollY;
+          // Only update if there's meaningful scroll
+          if (Math.abs(scrollDelta) > 0.1) {
+            setScrollProgress(normalizedDelta);
+          }
+          
+          // Clear any existing decay timeout
+          clearTimeout(decayTimeout);
+          
+          // Ease back to 0 after scrolling stops
+          decayTimeout = setTimeout(() => {
+            setScrollProgress(0);
+          }, 150);
+          
+          lastScrollTop = currentScrollTop;
           ticking = false;
         });
         ticking = true;
       }
     };
 
-    // Also listen to the parent scroll container
-    const scrollContainer = cardRef.current?.closest('.overflow-y-auto');
+    // Find the main snap scroll container (the one with snap-y snap-mandatory)
+    const scrollContainer = cardRef.current?.closest('.snap-y');
     
     if (scrollContainer) {
-      let containerTicking = false;
-      let lastContainerScrollTop = 0;
-
-      const handleContainerScroll = () => {
-        if (!containerTicking) {
-          requestAnimationFrame(() => {
-            const currentScrollTop = (scrollContainer as HTMLElement).scrollTop;
-            const scrollDelta = currentScrollTop - lastContainerScrollTop;
-            
-            const normalizedDelta = Math.max(-1, Math.min(1, scrollDelta / 15));
-            setScrollProgress(normalizedDelta);
-            
-            // Ease back to 0
-            setTimeout(() => {
-              setScrollProgress(prev => prev * 0.5);
-            }, 100);
-            
-            lastContainerScrollTop = currentScrollTop;
-            containerTicking = false;
-          });
-          containerTicking = true;
-        }
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+      return () => {
+        scrollContainer.removeEventListener('scroll', handleScroll);
+        clearTimeout(decayTimeout);
       };
-
-      scrollContainer.addEventListener('scroll', handleContainerScroll, { passive: true });
-      return () => scrollContainer.removeEventListener('scroll', handleContainerScroll);
     }
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    // Fallback to window scroll
+    window.addEventListener('scroll', handleScroll as EventListener, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll as EventListener);
+      clearTimeout(decayTimeout);
+    };
   }, []);
 
   // Parse month to get days
@@ -161,12 +159,12 @@ export default function MonthlyWagerCard({
     // Each shape has a slightly different rotation based on its position
     const row = Math.floor(index / 7);
     const col = index % 7;
-    const phaseOffset = (row + col) * 0.3; // Creates a wave effect
-    const rotationAmount = scrollProgress * 8 * Math.sin(phaseOffset); // Max 8 degrees rotation
-    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.05; // Subtle scale on scroll
+    const phaseOffset = (row + col) * 0.5; // Creates a wave effect
+    const rotationAmount = scrollProgress * 25 * Math.sin(phaseOffset + 1); // Max 25 degrees rotation
+    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.15; // More noticeable scale on scroll
     
     baseStyle.transform = `rotate(${rotationAmount}deg) scale(${scaleAmount})`;
-    baseStyle.transition = 'transform 0.15s ease-out, background-color 0.2s ease';
+    baseStyle.transition = 'transform 0.1s ease-out, background-color 0.2s ease';
 
     // Pulse animation for today
     if (isToday) {
@@ -191,9 +189,9 @@ export default function MonthlyWagerCard({
     // Scroll-based wiggle animation for star
     const row = Math.floor(index / 7);
     const col = index % 7;
-    const phaseOffset = (row + col) * 0.3;
-    const rotationAmount = scrollProgress * 12 * Math.sin(phaseOffset); // Stars rotate a bit more
-    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.08;
+    const phaseOffset = (row + col) * 0.5;
+    const rotationAmount = scrollProgress * 30 * Math.sin(phaseOffset + 1); // Stars rotate more
+    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.2;
 
     const starStyle: React.CSSProperties = {
       opacity,

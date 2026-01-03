@@ -34,14 +34,13 @@ export default function GoalItem({
       setIsPulsing(true);
       setIsAnimatingCheck(true);
       const pulseTimer = setTimeout(() => setIsPulsing(false), 400);
-      // Small delay to let the initial state render, then animate
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setIsAnimatingCheck(false);
-        });
-      });
+      // Small delay to let the initial state render, then animate the smiley in
+      const animTimer = setTimeout(() => {
+        setIsAnimatingCheck(false);
+      }, 50);
       return () => {
         clearTimeout(pulseTimer);
+        clearTimeout(animTimer);
       };
     }
     prevCompletedRef.current = completed;
@@ -76,24 +75,22 @@ export default function GoalItem({
         }}
       >
         {completed ? (
-          /* Animated checkmark */
+          /* Animated smiley face - from Figma */
           <svg 
-            className="w-6 h-6 text-white"
-            viewBox="0 0 24 24" 
+            className="w-6 h-6"
+            viewBox="0 0 21.5 21.5" 
             fill="none"
-            stroke="currentColor" 
-            strokeWidth={3}
+            stroke="white" 
+            strokeWidth={1.5}
             strokeLinecap="round"
             strokeLinejoin="round"
+            style={{
+              opacity: isAnimatingCheck ? 0 : 1,
+              transform: isAnimatingCheck ? 'scale(0.5)' : 'scale(1)',
+              transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+            }}
           >
-            <path 
-              d="M5 13l4 4L19 7"
-              style={{
-                strokeDasharray: 24,
-                strokeDashoffset: isAnimatingCheck ? 24 : 0,
-                transition: 'stroke-dashoffset 0.3s ease-out',
-              }}
-            />
+            <path d="M8.25 8.75C8.25 9.02614 8.02614 9.25 7.75 9.25C7.47386 9.25 7.25 9.02614 7.25 8.75M8.25 8.75C8.25 8.47386 8.02614 8.25 7.75 8.25C7.47386 8.25 7.25 8.47386 7.25 8.75M8.25 8.75H7.25M14.25 8.75C14.25 9.02614 14.0261 9.25 13.75 9.25C13.4739 9.25 13.25 9.02614 13.25 8.75M14.25 8.75C14.25 8.47386 14.0261 8.25 13.75 8.25C13.4739 8.25 13.25 8.47386 13.25 8.75M14.25 8.75H13.25M14.7502 13.75C13.838 14.9644 12.3857 15.75 10.7499 15.75C9.11406 15.75 7.66172 14.9644 6.74951 13.75M10.75 20.75C5.22715 20.75 0.75 16.2728 0.75 10.75C0.75 5.22715 5.22715 0.75 10.75 0.75C16.2728 0.75 20.75 5.22715 20.75 10.75C20.75 16.2728 16.2728 20.75 10.75 20.75Z" />
           </svg>
         ) : (
           /* Neutral face icon when not completed - exact SVG from Figma */
