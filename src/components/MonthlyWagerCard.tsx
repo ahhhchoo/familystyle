@@ -90,7 +90,7 @@ export default function MonthlyWagerCard({
     return baseStyle;
   };
 
-  // SVG Star component for last day (8-pointed starburst)
+  // SVG Star component for last day (8-pointed star with 66% inner ratio)
   const StarShape = ({ status }: { status: DayData['status'] }) => {
     let fillColor = INCOMPLETE_COLOR;
     let opacity = 1;
@@ -102,17 +102,17 @@ export default function MonthlyWagerCard({
       opacity = 0.5;
     }
 
-    // 8-pointed starburst shape
+    // Exact star path from Figma with 66% point ratio
     return (
       <svg 
         width="25.5" 
         height="25.5" 
-        viewBox="0 0 26 26" 
+        viewBox="0 0 25.4878 25.4878" 
         fill="none"
         style={{ opacity }}
       >
         <path
-          d="M13 0L14.5 8.5L21.5 4.5L17.5 11.5L26 13L17.5 14.5L21.5 21.5L14.5 17.5L13 26L11.5 17.5L4.5 21.5L8.5 14.5L0 13L8.5 11.5L4.5 4.5L11.5 8.5L13 0Z"
+          d="M12.7439 0L15.9626 4.97317L21.7552 3.7326L20.5146 9.52516L25.4878 12.7439L20.5146 15.9626L21.7552 21.7552L15.9626 20.5146L12.7439 25.4878L9.52516 20.5146L3.7326 21.7552L4.97317 15.9626L0 12.7439L4.97317 9.52516L3.7326 3.7326L9.52516 4.97317L12.7439 0Z"
           fill={fillColor}
         />
       </svg>
