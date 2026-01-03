@@ -161,13 +161,14 @@ export default function HomePage() {
               const daysRemaining = getDaysRemainingInWeek(today);
               
               memberGoals.forEach(goal => {
-                if (goal.frequency === 'daily') {
+                const frequency = goal.frequency || 'daily'; // Default to daily if not set
+                if (frequency === 'daily') {
                   dailyGoalsTotal++;
                   const isCompleted = todayCheckIns.some(
                     c => c.userId === memberId && c.goalId === goal.id && c.completed
                   );
                   if (isCompleted) dailyGoalsComplete++;
-                } else if (goal.frequency === 'weekly') {
+                } else if (frequency === 'weekly') {
                   weeklyGoalsTotal++;
                   const weekCount = weekCheckIns.filter(
                     c => c.userId === memberId && c.goalId === goal.id && c.completed
