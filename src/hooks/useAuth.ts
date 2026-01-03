@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   onAuthStateChanged,
-  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signOut as firebaseSignOut,
@@ -82,21 +81,11 @@ export function useAuth() {
       await handleUser(fbUser);
     });
 
-    // Also check for redirect result (for redirect sign-in flow)
-    // This is non-blocking - if it fails, auth state listener handles it
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) {
-          console.log('Redirect sign-in successful:', result.user.email);
-        }
-      })
-      .catch((err) => {
-        // Ignore "missing initial state" errors - they're expected when not coming from redirect
-        const errorMessage = err instanceof Error ? err.message : '';
-        if (!errorMessage.includes('initial state')) {
-          console.error('Redirect result error:', err);
-        }
-      });
+    // Check for redirect result (for redirect sign-in flow)
+    // Silently ignore errors - they happen when not coming from a redirect
+    getRedirectResult(auth).catch(() => {
+      // Ignore all errors - auth state listener handles everything
+    });
 
     return () => {
       isMounted = false;
@@ -112,26 +101,8 @@ export function useAuth() {
   const signInWithGoogle = useCallback(async () => {
     try {
       setError(null);
-      setLoading(true);
-      
-      // Try popup first, fall back to redirect if it fails
-      try {
-        await signInWithPopup(auth, googleProvider);
-      } catch (popupError: unknown) {
-        console.log('Popup failed, trying redirect:', popupError);
-        // If popup fails (blocked, or "missing initial state" error), use redirect
-        const errorMessage = popupError instanceof Error ? popupError.message : '';
-        if (
-          errorMessage.includes('popup') || 
-          errorMessage.includes('initial state') ||
-          errorMessage.includes('blocked') ||
-          errorMessage.includes('closed')
-        ) {
-          await signInWithRedirect(auth, googleProvider);
-        } else {
-          throw popupError;
-        }
-      }
+      // Use redirect only - more compatible with Safari/iOS
+      await signInWithRedirect(auth, googleProvider);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
       setLoading(false);

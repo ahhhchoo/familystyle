@@ -20,6 +20,11 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
+// Add scopes and custom parameters for better compatibility
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
+
 // Ensure persistence is set to local (survives browser restarts)
 setPersistence(auth, browserLocalPersistence).catch(console.error);
 
