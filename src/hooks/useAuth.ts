@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   onAuthStateChanged,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signOut as firebaseSignOut,
   User as FirebaseUser,
 } from 'firebase/auth';
@@ -20,9 +19,7 @@ export function useAuth() {
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
-    let unsubscribeAuth: (() => void) | null = null;
     let isMounted = true;
-    let isInitialized = false;
 
     const handleUser = async (fbUser: FirebaseUser | null) => {
       if (!isMounted) return;
@@ -76,40 +73,15 @@ export function useAuth() {
       }
     };
 
-    const init = async () => {
-      // IMPORTANT: Check for redirect result FIRST
-      // This handles the case where user just signed in via Google redirect
-      try {
-        console.log('Checking for redirect result...');
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          console.log('Redirect sign-in successful:', result.user.email);
-        }
-      } catch (err) {
-        console.error('Redirect result error:', err);
-      }
-
-      // Mark as initialized - now safe to show sign-in if no user
-      isInitialized = true;
-
-      // Set up auth state listener
-      unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-        console.log('Auth state changed:', fbUser?.email || 'no user', 'initialized:', isInitialized);
-        
-        // Only process if initialized (redirect check done)
-        if (isInitialized) {
-          await handleUser(fbUser);
-        }
-      });
-    };
-
-    init();
+    // Set up auth state listener
+    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+      console.log('Auth state changed:', fbUser?.email || 'no user');
+      await handleUser(fbUser);
+    });
 
     return () => {
       isMounted = false;
-      if (unsubscribeAuth) {
-        unsubscribeAuth();
-      }
+      unsubscribeAuth();
       if (unsubscribeUser) {
         unsubscribeUser();
       }
@@ -120,8 +92,8 @@ export function useAuth() {
     try {
       setError(null);
       setLoading(true);
-      // Use redirect for better mobile compatibility
-      await signInWithRedirect(auth, googleProvider);
+      // Use popup for more reliable sign-in
+      await signInWithPopup(auth, googleProvider);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
       setLoading(false);
