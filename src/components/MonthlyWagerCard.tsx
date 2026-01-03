@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 
 // Wager colors in rotation order (using hex values directly for reliability)
 const WAGER_COLORS = [
@@ -12,10 +12,17 @@ const WAGER_COLORS = [
 
 const INCOMPLETE_COLOR = '#202020';
 
+// Get today's date key
+const getTodayKey = (): string => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+};
+
 interface DayData {
   date: string; // YYYY-MM-DD
   status: 'complete' | 'partial' | 'none' | 'future';
   isLastDay: boolean;
+  isToday: boolean;
 }
 
 interface MonthlyWagerCardProps {
@@ -39,7 +46,69 @@ export default function MonthlyWagerCard({
   isCurrentMonth = false,
 }: MonthlyWagerCardProps) {
   const color = WAGER_COLORS[colorIndex % 4];
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
   
+  const todayKey = getTodayKey();
+
+  // Scroll-based wiggle animation
+  useEffect(() => {
+    let ticking = false;
+    let lastScrollY = 0;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          const scrollDelta = currentScrollY - lastScrollY;
+          
+          // Calculate a value between -1 and 1 based on scroll velocity
+          const normalizedDelta = Math.max(-1, Math.min(1, scrollDelta / 20));
+          setScrollProgress(normalizedDelta);
+          
+          lastScrollY = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    // Also listen to the parent scroll container
+    const scrollContainer = cardRef.current?.closest('.overflow-y-auto');
+    
+    if (scrollContainer) {
+      let containerTicking = false;
+      let lastContainerScrollTop = 0;
+
+      const handleContainerScroll = () => {
+        if (!containerTicking) {
+          requestAnimationFrame(() => {
+            const currentScrollTop = (scrollContainer as HTMLElement).scrollTop;
+            const scrollDelta = currentScrollTop - lastContainerScrollTop;
+            
+            const normalizedDelta = Math.max(-1, Math.min(1, scrollDelta / 15));
+            setScrollProgress(normalizedDelta);
+            
+            // Ease back to 0
+            setTimeout(() => {
+              setScrollProgress(prev => prev * 0.5);
+            }, 100);
+            
+            lastContainerScrollTop = currentScrollTop;
+            containerTicking = false;
+          });
+          containerTicking = true;
+        }
+      };
+
+      scrollContainer.addEventListener('scroll', handleContainerScroll, { passive: true });
+      return () => scrollContainer.removeEventListener('scroll', handleContainerScroll);
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   // Parse month to get days
   const days = useMemo(() => {
     const [year, monthNum] = month.split('-').map(Number);
@@ -53,11 +122,12 @@ export default function MonthlyWagerCard({
         date: dateKey,
         status,
         isLastDay: day === daysInMonth,
+        isToday: dateKey === todayKey,
       });
     }
     
     return result;
-  }, [month, dayStatuses]);
+  }, [month, dayStatuses, todayKey]);
 
   // Format month for display (e.g., "January 2026")
   const displayMonth = useMemo(() => {
@@ -67,7 +137,7 @@ export default function MonthlyWagerCard({
   }, [month]);
 
   // Get shape for a day (alternating circle/square based on index)
-  const getShapeStyle = (index: number, status: DayData['status']): React.CSSProperties => {
+  const getShapeStyle = (index: number, status: DayData['status'], isToday: boolean): React.CSSProperties => {
     const baseStyle: React.CSSProperties = {};
 
     // Color based on status
@@ -87,11 +157,27 @@ export default function MonthlyWagerCard({
       baseStyle.borderRadius = '0';
     }
 
+    // Scroll-based wiggle animation
+    // Each shape has a slightly different rotation based on its position
+    const row = Math.floor(index / 7);
+    const col = index % 7;
+    const phaseOffset = (row + col) * 0.3; // Creates a wave effect
+    const rotationAmount = scrollProgress * 8 * Math.sin(phaseOffset); // Max 8 degrees rotation
+    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.05; // Subtle scale on scroll
+    
+    baseStyle.transform = `rotate(${rotationAmount}deg) scale(${scaleAmount})`;
+    baseStyle.transition = 'transform 0.15s ease-out, background-color 0.2s ease';
+
+    // Pulse animation for today
+    if (isToday) {
+      baseStyle.animation = 'pulse-dot 1.8s ease-in-out infinite';
+    }
+
     return baseStyle;
   };
 
   // SVG Star component for last day (8-pointed star with 66% inner ratio)
-  const StarShape = ({ status }: { status: DayData['status'] }) => {
+  const StarShape = ({ status, isToday, index }: { status: DayData['status']; isToday: boolean; index: number }) => {
     let fillColor = INCOMPLETE_COLOR;
     let opacity = 1;
     
@@ -102,6 +188,24 @@ export default function MonthlyWagerCard({
       opacity = 0.5;
     }
 
+    // Scroll-based wiggle animation for star
+    const row = Math.floor(index / 7);
+    const col = index % 7;
+    const phaseOffset = (row + col) * 0.3;
+    const rotationAmount = scrollProgress * 12 * Math.sin(phaseOffset); // Stars rotate a bit more
+    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.08;
+
+    const starStyle: React.CSSProperties = {
+      opacity,
+      transform: `rotate(${rotationAmount}deg) scale(${scaleAmount})`,
+      transition: 'transform 0.15s ease-out',
+    };
+
+    // Pulse animation for today
+    if (isToday) {
+      starStyle.animation = 'pulse-dot 1.8s ease-in-out infinite';
+    }
+
     // Exact star path from Figma with 66% point ratio
     return (
       <svg 
@@ -109,7 +213,7 @@ export default function MonthlyWagerCard({
         height="25.5" 
         viewBox="0 0 25.4878 25.4878" 
         fill="none"
-        style={{ opacity }}
+        style={starStyle}
       >
         <path
           d="M12.7439 0L15.9626 4.97317L21.7552 3.7326L20.5146 9.52516L25.4878 12.7439L20.5146 15.9626L21.7552 21.7552L15.9626 20.5146L12.7439 25.4878L9.52516 20.5146L3.7326 21.7552L4.97317 15.9626L0 12.7439L4.97317 9.52516L3.7326 3.7326L9.52516 4.97317L12.7439 0Z"
@@ -120,7 +224,7 @@ export default function MonthlyWagerCard({
   };
 
   return (
-    <div className="flex gap-4 items-start">
+    <div ref={cardRef} className="flex gap-4 items-start">
       {/* Left side - Stats */}
       <div className="flex flex-col min-w-[100px]">
         <p 
@@ -165,11 +269,11 @@ export default function MonthlyWagerCard({
             className="w-[25.5px] h-[25.5px]"
           >
             {day.isLastDay ? (
-              <StarShape status={day.status} />
+              <StarShape status={day.status} isToday={day.isToday} index={index} />
             ) : (
               <div 
                 className="w-full h-full"
-                style={getShapeStyle(index, day.status)} 
+                style={getShapeStyle(index, day.status, day.isToday)} 
               />
             )}
           </div>
