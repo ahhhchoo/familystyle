@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   User as FirebaseUser,
 } from 'firebase/auth';
@@ -20,6 +22,7 @@ export function useAuth() {
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
     let isMounted = true;
+    let hasProcessedRedirect = false;
 
     const handleUser = async (fbUser: FirebaseUser | null) => {
       if (!isMounted) return;
@@ -69,19 +72,45 @@ export function useAuth() {
       } else {
         setFirebaseUser(null);
         setUser(null);
-        setLoading(false);
+        // Only set loading false if we've checked for redirect
+        if (hasProcessedRedirect) {
+          setLoading(false);
+        }
       }
     };
 
-    // Set up auth state listener
-    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-      console.log('Auth state changed:', fbUser?.email || 'no user');
-      await handleUser(fbUser);
+    const init = async () => {
+      // Check for redirect result first (handles redirect sign-in fallback)
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          console.log('Redirect sign-in successful:', result.user.email);
+        }
+      } catch (err) {
+        console.error('Redirect result error:', err);
+      }
+      
+      hasProcessedRedirect = true;
+
+      // Set up auth state listener
+      const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+        console.log('Auth state changed:', fbUser?.email || 'no user');
+        await handleUser(fbUser);
+      });
+
+      return unsubscribeAuth;
+    };
+
+    let unsubscribeAuth: (() => void) | undefined;
+    init().then((unsub) => {
+      unsubscribeAuth = unsub;
     });
 
     return () => {
       isMounted = false;
-      unsubscribeAuth();
+      if (unsubscribeAuth) {
+        unsubscribeAuth();
+      }
       if (unsubscribeUser) {
         unsubscribeUser();
       }
@@ -92,8 +121,25 @@ export function useAuth() {
     try {
       setError(null);
       setLoading(true);
-      // Use popup for more reliable sign-in
-      await signInWithPopup(auth, googleProvider);
+      
+      // Try popup first, fall back to redirect if it fails
+      try {
+        await signInWithPopup(auth, googleProvider);
+      } catch (popupError: unknown) {
+        console.log('Popup failed, trying redirect:', popupError);
+        // If popup fails (blocked, or "missing initial state" error), use redirect
+        const errorMessage = popupError instanceof Error ? popupError.message : '';
+        if (
+          errorMessage.includes('popup') || 
+          errorMessage.includes('initial state') ||
+          errorMessage.includes('blocked') ||
+          errorMessage.includes('closed')
+        ) {
+          await signInWithRedirect(auth, googleProvider);
+        } else {
+          throw popupError;
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
       setLoading(false);
