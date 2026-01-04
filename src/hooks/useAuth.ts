@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   onAuthStateChanged,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signOut as firebaseSignOut,
   User as FirebaseUser,
 } from 'firebase/auth';
@@ -81,11 +80,7 @@ export function useAuth() {
       await handleUser(fbUser);
     });
 
-    // Check for redirect result (for redirect sign-in flow)
-    // Silently ignore errors - they happen when not coming from a redirect
-    getRedirectResult(auth).catch(() => {
-      // Ignore all errors - auth state listener handles everything
-    });
+
 
     return () => {
       isMounted = false;
@@ -101,8 +96,8 @@ export function useAuth() {
   const signInWithGoogle = useCallback(async () => {
     try {
       setError(null);
-      // Use redirect only - more compatible with Safari/iOS
-      await signInWithRedirect(auth, googleProvider);
+      setLoading(true);
+      await signInWithPopup(auth, googleProvider);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
       setLoading(false);
