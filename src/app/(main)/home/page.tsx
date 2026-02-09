@@ -798,7 +798,7 @@ export default function HomePage() {
         <h1 className="text-[32px] font-[800] text-white leading-none">
           Day {dayOfYear}
         </h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-5">
           {/* Profile icon - navigates to your stats (exact Figma SVG) */}
           <button
             onClick={() => router.push('/profile')}
