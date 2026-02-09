@@ -22,6 +22,18 @@ const getDateKey = (date: Date): string => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
+// Helper: Get the date key a goal was created on
+const getGoalCreatedDateKey = (goal: Goal): string => {
+  if (!goal.createdAt) return '2000-01-01';
+  if (typeof goal.createdAt === 'object' && 'seconds' in goal.createdAt) {
+    return getDateKey(new Date(goal.createdAt.seconds * 1000));
+  }
+  if (goal.createdAt instanceof Date) {
+    return getDateKey(goal.createdAt);
+  }
+  return '2000-01-01';
+};
+
 // Day names starting from Sunday
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -189,11 +201,10 @@ export default function ProfilePage() {
       const dayCheckIns = allCheckIns.filter(c => c.date === dateKey);
       const completedCheckIns = dayCheckIns.filter(c => c.completed);
 
-      // For the profile stats, count all goals uniformly:
-      // a day is "complete" if every goal has a check-in that day
-      const totalGoals = goals.length;
+      // Only count goals that existed on this day
+      const activeGoals = goals.filter(g => getGoalCreatedDateKey(g) <= dateKey);
 
-      if (totalGoals === 0) {
+      if (activeGoals.length === 0) {
         if (completedCheckIns.length > 0) {
           statuses.set(dateKey, 'complete');
         } else {
@@ -202,11 +213,11 @@ export default function ProfilePage() {
         continue;
       }
 
-      const completedGoalCount = goals.filter(goal =>
+      const completedGoalCount = activeGoals.filter(goal =>
         completedCheckIns.some(c => c.goalId === goal.id)
       ).length;
 
-      if (completedGoalCount === totalGoals) {
+      if (completedGoalCount === activeGoals.length) {
         statuses.set(dateKey, 'complete');
       } else if (completedGoalCount > 0) {
         statuses.set(dateKey, 'partial');
@@ -241,9 +252,12 @@ export default function ProfilePage() {
         const dateKey = getDateKey(date);
         if (dateKey > todayKey) break;
 
+        const activeGoals = memberGoals.filter(g => getGoalCreatedDateKey(g) <= dateKey);
+        if (activeGoals.length === 0) continue;
+
         memberTotalDays++;
         const dayCheckIns = familyCheckIns.filter(c => c.date === dateKey && c.userId === memberId && c.completed);
-        const allGoalsComplete = memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
+        const allGoalsComplete = activeGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
         if (allGoalsComplete) memberCompleteDays++;
       }
 

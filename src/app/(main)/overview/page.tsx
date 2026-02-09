@@ -36,6 +36,18 @@ const getDateKey = (date: Date): string => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
+// Helper: Get the date key a goal was created on
+const getGoalCreatedDateKey = (goal: Goal): string => {
+  if (!goal.createdAt) return '2000-01-01';
+  if (typeof goal.createdAt === 'object' && 'seconds' in goal.createdAt) {
+    return getDateKey(new Date(goal.createdAt.seconds * 1000));
+  }
+  if (goal.createdAt instanceof Date) {
+    return getDateKey(goal.createdAt);
+  }
+  return '2000-01-01';
+};
+
 // Helper: Get all dates in a week (Mon-Sun) as date keys
 const getWeekDates = (anyDateInWeek: Date): string[] => {
   const weekStart = getWeekStart(anyDateInWeek);
@@ -267,9 +279,14 @@ export default function OverviewPage() {
       let allComplete = true;
       let anyActivity = completedCheckIns.length > 0;
       
-      // For each user with goals, check if all their goals are satisfied
+      // For each user with goals, check if all their goals that existed on this day are satisfied
+      let anyGoalsExisted = false;
       goalsByUser.forEach((userGoals, userId) => {
         userGoals.forEach(goal => {
+          // Skip goals that didn't exist yet on this day
+          if (getGoalCreatedDateKey(goal) > dateKey) return;
+          anyGoalsExisted = true;
+
           if (goal.frequency === 'daily') {
             // Daily goal: must be completed on this specific day
             const isCompleted = completedCheckIns.some(
@@ -294,7 +311,6 @@ export default function OverviewPage() {
               // Mathematically impossible to reach target
               allComplete = false;
             }
-            // If achievable (either already met or still possible), count as complete
             
             // Track if there's any weekly goal activity
             if (weekCount > 0) {
@@ -304,8 +320,8 @@ export default function OverviewPage() {
         });
       });
       
-      // If no goals exist yet, consider partial if any check-in exists
-      if (goals.length === 0) {
+      // If no goals existed on this day, consider partial if any check-in exists
+      if (!anyGoalsExisted) {
         allComplete = false;
       }
       

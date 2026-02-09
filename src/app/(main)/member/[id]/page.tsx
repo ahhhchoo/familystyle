@@ -7,7 +7,14 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import GoalItem from '@/components/GoalItem';
 
-import { User, Goal, DailyCheckIn } from '@/types';
+import { User, Goal, DailyCheckIn, Family } from '@/types';
+
+// Helper: ordinal suffix (1st, 2nd, 3rd, 4th, ...)
+function getOrdinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 // Helper to get Monday of the current week
 const getMondayOfWeek = (date: Date): Date => {
@@ -39,6 +46,18 @@ const getDaysRemainingInWeek = (date: Date): number => {
 // Helper: Get date key in YYYY-MM-DD format
 const getDateKey = (date: Date): string => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+// Helper: Get the date key a goal was created on
+const getGoalCreatedDateKey = (goal: Goal): string => {
+  if (!goal.createdAt) return '2000-01-01';
+  if (typeof goal.createdAt === 'object' && 'seconds' in goal.createdAt) {
+    return getDateKey(new Date(goal.createdAt.seconds * 1000));
+  }
+  if (goal.createdAt instanceof Date) {
+    return getDateKey(goal.createdAt);
+  }
+  return '2000-01-01';
 };
 
 // Day names starting from Sunday
@@ -103,6 +122,9 @@ export default function MemberPage({ params }: PageProps) {
   const [todayCheckIns, setTodayCheckIns] = useState<DailyCheckIn[]>([]);
   const [weekCheckIns, setWeekCheckIns] = useState<DailyCheckIn[]>([]);
   const [allCheckIns, setAllCheckIns] = useState<DailyCheckIn[]>([]);
+  const [familyMemberIds, setFamilyMemberIds] = useState<string[]>([]);
+  const [familyGoals, setFamilyGoals] = useState<Goal[]>([]);
+  const [familyCheckIns, setFamilyCheckIns] = useState<DailyCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isCurrentUser = currentUser?.uid === memberId;
@@ -195,11 +217,43 @@ export default function MemberPage({ params }: PageProps) {
           setLoading(false);
         });
 
+        // Fetch family data for ranking
+        let unsubscribeFamilyGoals: (() => void) | null = null;
+        let unsubscribeFamilyCheckIns: (() => void) | null = null;
+
+        if (currentUser?.familyId) {
+          const familyRef = doc(db, 'families', currentUser.familyId);
+          const familySnap = await getDoc(familyRef);
+          if (familySnap.exists()) {
+            const familyData = familySnap.data() as Family;
+            setFamilyMemberIds(familyData.members || []);
+
+            const familyGoalsQuery = query(
+              collection(db, 'goals'),
+              where('familyId', '==', currentUser.familyId),
+              where('isActive', '==', true)
+            );
+            unsubscribeFamilyGoals = onSnapshot(familyGoalsQuery, (snapshot) => {
+              setFamilyGoals(snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Goal[]);
+            });
+
+            const familyCheckInsQuery = query(
+              collection(db, 'checkIns'),
+              where('familyId', '==', currentUser.familyId)
+            );
+            unsubscribeFamilyCheckIns = onSnapshot(familyCheckInsQuery, (snapshot) => {
+              setFamilyCheckIns(snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as DailyCheckIn[]);
+            });
+          }
+        }
+
         return () => {
           unsubscribeGoals();
           unsubscribeTodayCheckIns();
           unsubscribeWeekCheckIns();
           unsubscribeAllCheckIns();
+          if (unsubscribeFamilyGoals) unsubscribeFamilyGoals();
+          if (unsubscribeFamilyCheckIns) unsubscribeFamilyCheckIns();
         };
       } catch (error) {
         console.error('Error fetching member data:', error);
@@ -277,7 +331,10 @@ export default function MemberPage({ params }: PageProps) {
 
       const dayCheckIns = allCheckIns.filter(c => c.date === dateKey);
       const completedCheckIns = dayCheckIns.filter(c => c.completed);
-      const dailyGoals = goals.filter(g => (g.frequency || 'daily') === 'daily');
+      // Only count daily goals that existed on this day
+      const dailyGoals = goals
+        .filter(g => (g.frequency || 'daily') === 'daily')
+        .filter(g => getGoalCreatedDateKey(g) <= dateKey);
       const totalDailyGoals = dailyGoals.length;
 
       if (totalDailyGoals === 0) {
@@ -304,6 +361,45 @@ export default function MemberPage({ params }: PageProps) {
 
     return statuses;
   }, [allCheckIns, goals, totalDays, todayKey, year]);
+
+  // Calculate total completion rate for this member
+  const startOfYear = new Date(year, 0, 1);
+  const dayOfYear = Math.floor((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const completedDays = Array.from(dayStatuses.values()).filter(s => s === 'complete').length;
+  const totalCompletionRate = dayOfYear > 0 ? Math.round((completedDays / dayOfYear) * 100) : 0;
+
+  // Calculate ranking among family members
+  const familyRanking = useMemo(() => {
+    if (familyMemberIds.length === 0) return { rank: 0, total: 0 };
+
+    const memberRates: { uid: string; rate: number }[] = familyMemberIds.map(mid => {
+      const memberGoals = familyGoals.filter(g => g.userId === mid);
+      if (memberGoals.length === 0) return { uid: mid, rate: 0 };
+
+      let memberCompleteDays = 0;
+      let memberTotalDays = 0;
+
+      for (let i = 0; i < totalDays; i++) {
+        const date = new Date(year, 0, i + 1);
+        const dateKey = getDateKey(date);
+        if (dateKey > todayKey) break;
+
+        const activeGoals = memberGoals.filter(g => getGoalCreatedDateKey(g) <= dateKey);
+        if (activeGoals.length === 0) continue;
+
+        memberTotalDays++;
+        const dayCheckIns = familyCheckIns.filter(c => c.date === dateKey && c.userId === mid && c.completed);
+        const allGoalsComplete = activeGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
+        if (allGoalsComplete) memberCompleteDays++;
+      }
+
+      return { uid: mid, rate: memberTotalDays > 0 ? memberCompleteDays / memberTotalDays : 0 };
+    });
+
+    memberRates.sort((a, b) => b.rate - a.rate);
+    const rank = memberRates.findIndex(m => m.uid === memberId) + 1;
+    return { rank, total: familyMemberIds.length };
+  }, [familyMemberIds, familyGoals, familyCheckIns, totalDays, todayKey, year, memberId]);
 
   // Build weekly breakdown data for the "Your stats" view
   const weeksData = useMemo(() => {
@@ -470,7 +566,7 @@ export default function MemberPage({ params }: PageProps) {
             }}
             className="flex flex-col items-center text-[var(--gray-text)] animate-bounce"
           >
-            <span className="text-xs mb-1">Your Stats</span>
+            <span className="text-xs mb-1">{isCurrentUser ? 'Your Stats' : 'Stats'}</span>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
@@ -481,20 +577,17 @@ export default function MemberPage({ params }: PageProps) {
       {/* Second Section - Weekly Stats (new Figma design) */}
       <section id="stats-section" className="min-h-screen snap-start px-4 pt-16 pb-8">
         {/* Header */}
-        <header className="flex items-center justify-between mb-6">
-          <h1 className="text-[32px] font-[800] text-white leading-none">
-            Your stats
-          </h1>
-          <button
-            onClick={() => router.push('/settings')}
-            className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center"
-          >
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        </header>
+        <h1 className="text-[32px] font-[800] text-white leading-none mb-2">
+          {isCurrentUser ? 'Your stats' : `${member?.displayName}'s stats`}
+        </h1>
+        <p className="text-base text-white/60 leading-snug">
+          Total completion rate: {totalCompletionRate}%
+        </p>
+        {familyRanking.rank > 0 && (
+          <p className="text-base text-white/60 leading-snug mb-6">
+            <span className="font-bold text-white">{getOrdinal(familyRanking.rank)}</span> place in your family
+          </p>
+        )}
 
         {/* Weeks */}
         <div className="space-y-6">

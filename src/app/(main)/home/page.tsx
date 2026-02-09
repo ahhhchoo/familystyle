@@ -28,6 +28,23 @@ const getDateKey = (date: Date): string => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
+// Helper: Get the date key a goal was created on (so we don't count it against days before it existed)
+const getGoalCreatedDateKey = (goal: Goal): string => {
+  if (!goal.createdAt) return '2000-01-01'; // fallback: count from beginning
+  if (typeof goal.createdAt === 'object' && 'seconds' in goal.createdAt) {
+    return getDateKey(new Date(goal.createdAt.seconds * 1000));
+  }
+  if (goal.createdAt instanceof Date) {
+    return getDateKey(goal.createdAt);
+  }
+  return '2000-01-01';
+};
+
+// Helper: filter goals to only those that existed on a given date
+const goalsExistingOn = (goals: Goal[], dateKey: string): Goal[] => {
+  return goals.filter(g => getGoalCreatedDateKey(g) <= dateKey);
+};
+
 // Helper: Get the Monday of the week for a given date
 const getWeekStart = (date: Date): Date => {
   const d = new Date(date);
@@ -72,10 +89,12 @@ function getStreak(
 
   for (let i = 0; i < 365; i++) {
     const dateKey = getDateKey(date);
+    const activeGoals = goalsExistingOn(memberGoals, dateKey);
+    if (activeGoals.length === 0) { date.setDate(date.getDate() - 1); continue; }
     const dayCheckIns = checkIns.filter(
       c => c.date === dateKey && c.userId === memberId && c.completed
     );
-    const allDone = memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
+    const allDone = activeGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
     if (allDone) {
       streak++;
     } else {
@@ -100,11 +119,14 @@ function getTotalCompleteDays(
 
   while (getDateKey(date) <= todayKey) {
     const dateKey = getDateKey(date);
-    const dayCheckIns = checkIns.filter(
-      c => c.date === dateKey && c.userId === memberId && c.completed
-    );
-    if (memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
-      count++;
+    const activeGoals = goalsExistingOn(memberGoals, dateKey);
+    if (activeGoals.length > 0) {
+      const dayCheckIns = checkIns.filter(
+        c => c.date === dateKey && c.userId === memberId && c.completed
+      );
+      if (activeGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
+        count++;
+      }
     }
     date.setDate(date.getDate() + 1);
   }
@@ -126,13 +148,16 @@ function getCompletionRateForRange(
   const date = new Date(sy, sm - 1, sd);
 
   while (getDateKey(date) <= endKey) {
-    totalDays++;
     const dateKey = getDateKey(date);
-    const dayCheckIns = checkIns.filter(
-      c => c.date === dateKey && c.userId === memberId && c.completed
-    );
-    if (memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
-      completeDays++;
+    const activeGoals = goalsExistingOn(memberGoals, dateKey);
+    if (activeGoals.length > 0) {
+      totalDays++;
+      const dayCheckIns = checkIns.filter(
+        c => c.date === dateKey && c.userId === memberId && c.completed
+      );
+      if (activeGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
+        completeDays++;
+      }
     }
     date.setDate(date.getDate() + 1);
   }
@@ -213,19 +238,22 @@ function computeEmojiBadge(
     let hasDays = false;
 
     while (getDateKey(weekDate) <= todayKey) {
-      hasDays = true;
       const dateKey = getDateKey(weekDate);
-      const dayCheckIns = allCheckIns.filter(
-        c => c.date === dateKey && c.userId === memberId && c.completed
-      );
-      if (!memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
-        perfectWeek = false;
-        break;
+      const activeGoals = goalsExistingOn(memberGoals, dateKey);
+      if (activeGoals.length > 0) {
+        hasDays = true;
+        const dayCheckIns = allCheckIns.filter(
+          c => c.date === dateKey && c.userId === memberId && c.completed
+        );
+        if (!activeGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
+          perfectWeek = false;
+          break;
+        }
       }
       weekDate.setDate(weekDate.getDate() + 1);
     }
 
-    if (perfectWeek && hasDays && memberGoals.length > 0) return '🌟';
+    if (perfectWeek && hasDays) return '🌟';
   }
 
   // --- 7. Bullseye: just completed all goals today ---
