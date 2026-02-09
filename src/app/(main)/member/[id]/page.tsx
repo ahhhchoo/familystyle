@@ -44,42 +44,21 @@ const getDateKey = (date: Date): string => {
 // Day names starting from Sunday
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-// Status icon - uses same smiley/neutral face style from GoalItem
+// Status icon matching Figma exactly: green check (complete) / gray dash (incomplete)
 function StatusIcon({ status, size = 48 }: { status: 'complete' | 'incomplete'; size?: number }) {
-  const iconSize = size * 0.55;
+  if (status === 'complete') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="22.5" fill="#15B347" stroke="#15B347" strokeWidth="3" />
+        <path d="M15 24L21 30L33 18" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   return (
-    <div
-      className={`rounded-full flex items-center justify-center
-        ${status === 'complete' ? 'bg-[var(--orange)]' : 'bg-[var(--gray-card)]'}`}
-      style={{ width: size, height: size }}
-    >
-      {status === 'complete' ? (
-        <svg 
-          style={{ width: iconSize, height: iconSize }}
-          viewBox="0 0 21.5 21.5" 
-          fill="none"
-          stroke="white" 
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M8.25 8.75C8.25 9.02614 8.02614 9.25 7.75 9.25C7.47386 9.25 7.25 9.02614 7.25 8.75M8.25 8.75C8.25 8.47386 8.02614 8.25 7.75 8.25C7.47386 8.25 7.25 8.47386 7.25 8.75M8.25 8.75H7.25M14.25 8.75C14.25 9.02614 14.0261 9.25 13.75 9.25C13.4739 9.25 13.25 9.02614 13.25 8.75M14.25 8.75C14.25 8.47386 14.0261 8.25 13.75 8.25C13.4739 8.25 13.25 8.47386 13.25 8.75M14.25 8.75H13.25M14.7502 13.75C13.838 14.9644 12.3857 15.75 10.7499 15.75C9.11406 15.75 7.66172 14.9644 6.74951 13.75M10.75 20.75C5.22715 20.75 0.75 16.2728 0.75 10.75C0.75 5.22715 5.22715 0.75 10.75 0.75C16.2728 0.75 20.75 5.22715 20.75 10.75C20.75 16.2728 16.2728 20.75 10.75 20.75Z" />
-        </svg>
-      ) : (
-        <svg 
-          style={{ width: iconSize, height: iconSize }}
-          fill="none" 
-          viewBox="0 0 21.5 21.5"
-          stroke="white"
-          strokeOpacity={0.6}
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M8.25 8.75C8.25 9.02614 8.02614 9.25 7.75 9.25C7.47386 9.25 7.25 9.02614 7.25 8.75M8.25 8.75C8.25 8.47386 8.02614 8.25 7.75 8.25C7.47386 8.25 7.25 8.47386 7.25 8.75M8.25 8.75H7.25M14.25 8.75C14.25 9.02614 14.0261 9.25 13.75 9.25C13.4739 9.25 13.25 9.02614 13.25 8.75M14.25 8.75C14.25 8.47386 14.0261 8.25 13.75 8.25C13.4739 8.25 13.25 8.47386 13.25 8.75M14.25 8.75H13.25M13.75 13.75H7.75M10.75 20.75C5.22715 20.75 0.75 16.2728 0.75 10.75C0.75 5.22715 5.22715 0.75 10.75 0.75C16.2728 0.75 20.75 5.22715 20.75 10.75C20.75 16.2728 16.2728 20.75 10.75 20.75Z" />
-        </svg>
-      )}
-    </div>
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+      <circle cx="24" cy="24" r="22.5" fill="#3A3A3C" stroke="#3A3A3C" strokeWidth="3" />
+      <line x1="16" y1="24" x2="32" y2="24" stroke="white" strokeOpacity="0.6" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -523,10 +502,10 @@ export default function MemberPage({ params }: PageProps) {
             <div key={week.weekNumber}>
               {/* Week label row */}
               <div className="flex items-center justify-between mb-2">
-                <p className="text-base font-bold italic text-white tracking-[-0.4px]">
+                <p className="text-base font-bold text-white tracking-[-0.4px]">
                   Week {week.weekNumber} - {week.completionRate}%
                 </p>
-                <p className="text-base font-bold italic text-white/60 tracking-[-0.4px]">
+                <p className="text-base font-bold text-white/60 tracking-[-0.4px]">
                   {formatDateRange(week.startDate, week.endDate)}
                 </p>
               </div>
@@ -536,13 +515,11 @@ export default function MemberPage({ params }: PageProps) {
                 {week.days.map((day) => {
                   const isFuture = day.status === 'future';
                   const isComplete = day.status === 'complete';
-                  const isToday = day.dateKey === todayKey;
 
                   return (
                     <div
                       key={day.dateKey}
                       className={`shrink-0 w-[120px] h-[179px] bg-[#1e1d1d] first:rounded-l-xl last:rounded-r-xl overflow-hidden flex flex-col items-center justify-between py-6 px-3
-                        ${isToday ? 'ring-1 ring-white/30' : ''}
                         ${isFuture ? 'opacity-40' : ''}`}
                     >
                       <StatusIcon
