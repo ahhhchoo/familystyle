@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSwipeable } from 'react-swipeable';
-import { collection, query, where, onSnapshot, doc, getDoc, getDocs } from 'firebase/firestore';
+import Image from 'next/image';
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import PersonCard from '@/components/PersonCard';
 
 import { FamilyMemberStatus, DailyCheckIn, User, TimestampOrDate, Goal } from '@/types';
 
@@ -22,6 +21,13 @@ const getTimeInMs = (timestamp: TimestampOrDate): number => {
   return 0;
 };
 
+
+
+// Helper: Get date key in YYYY-MM-DD format
+const getDateKey = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
 // Helper: Get the Monday of the week for a given date
 const getWeekStart = (date: Date): Date => {
   const d = new Date(date);
@@ -30,11 +36,6 @@ const getWeekStart = (date: Date): Date => {
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
-};
-
-// Helper: Get date key in YYYY-MM-DD format
-const getDateKey = (date: Date): string => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
 // Helper: Get all dates in a week (Mon-Sun) as date keys
@@ -49,41 +50,310 @@ const getWeekDates = (anyDateInWeek: Date): string[] => {
   return dates;
 };
 
-// Helper: Get remaining days in the week (including today)
-// Monday = 7 days left, Sunday = 1 day left
-const getDaysRemainingInWeek = (date: Date): number => {
-  const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  // Convert to Mon=0, Tue=1, ..., Sun=6
-  const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  return 7 - adjustedDay;
+
+
+// Goal card icon - uses same smiley/neutral face from GoalItem with pulse animation
+function GoalCardIcon({ completed, isPulsing, isAnimatingCheck, size = 48 }: { 
+  completed: boolean; 
+  isPulsing: boolean;
+  isAnimatingCheck: boolean;
+  size?: number;
+}) {
+  const iconSize = size * 0.55; // scale the face SVG relative to circle
+  return (
+    <div
+      className={`rounded-full flex items-center justify-center transition-all duration-300
+        ${completed ? 'bg-[var(--orange)]' : 'bg-[var(--gray-card)]'}
+        ${isPulsing ? 'scale-125' : 'scale-100'}`}
+      style={{
+        width: size,
+        height: size,
+        boxShadow: isPulsing ? '0 0 20px rgba(245, 165, 36, 0.5)' : 'none',
+      }}
+    >
+      {completed ? (
+        <svg 
+          style={{
+            width: iconSize, height: iconSize,
+            opacity: isAnimatingCheck ? 0 : 1,
+            transform: isAnimatingCheck ? 'scale(0.5)' : 'scale(1)',
+            transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+          }}
+          viewBox="0 0 21.5 21.5" 
+          fill="none"
+          stroke="white" 
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M8.25 8.75C8.25 9.02614 8.02614 9.25 7.75 9.25C7.47386 9.25 7.25 9.02614 7.25 8.75M8.25 8.75C8.25 8.47386 8.02614 8.25 7.75 8.25C7.47386 8.25 7.25 8.47386 7.25 8.75M8.25 8.75H7.25M14.25 8.75C14.25 9.02614 14.0261 9.25 13.75 9.25C13.4739 9.25 13.25 9.02614 13.25 8.75M14.25 8.75C14.25 8.47386 14.0261 8.25 13.75 8.25C13.4739 8.25 13.25 8.47386 13.25 8.75M14.25 8.75H13.25M14.7502 13.75C13.838 14.9644 12.3857 15.75 10.7499 15.75C9.11406 15.75 7.66172 14.9644 6.74951 13.75M10.75 20.75C5.22715 20.75 0.75 16.2728 0.75 10.75C0.75 5.22715 5.22715 0.75 10.75 0.75C16.2728 0.75 20.75 5.22715 20.75 10.75C20.75 16.2728 16.2728 20.75 10.75 20.75Z" />
+        </svg>
+      ) : (
+        <svg 
+          style={{ width: iconSize, height: iconSize }}
+          fill="none" 
+          viewBox="0 0 21.5 21.5"
+          stroke="white"
+          strokeOpacity={0.6}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M8.25 8.75C8.25 9.02614 8.02614 9.25 7.75 9.25C7.47386 9.25 7.25 9.02614 7.25 8.75M8.25 8.75C8.25 8.47386 8.02614 8.25 7.75 8.25C7.47386 8.25 7.25 8.47386 7.25 8.75M8.25 8.75H7.25M14.25 8.75C14.25 9.02614 14.0261 9.25 13.75 9.25C13.4739 9.25 13.25 9.02614 13.25 8.75M14.25 8.75C14.25 8.47386 14.0261 8.25 13.75 8.25C13.4739 8.25 13.25 8.47386 13.25 8.75M14.25 8.75H13.25M13.75 13.75H7.75M10.75 20.75C5.22715 20.75 0.75 16.2728 0.75 10.75C0.75 5.22715 5.22715 0.75 10.75 0.75C16.2728 0.75 20.75 5.22715 20.75 10.75C20.75 16.2728 16.2728 20.75 10.75 20.75Z" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// Wrapper component that manages per-goal pulse animation state
+function GoalCard({ 
+  goal, 
+  isCompleted, 
+  onToggle,
+  weeklyProgress,
+}: { 
+  goal: Goal; 
+  isCompleted: boolean; 
+  onToggle: () => void;
+  weeklyProgress?: number;
+}) {
+  const [isPulsing, setIsPulsing] = useState(false);
+  const [isAnimatingCheck, setIsAnimatingCheck] = useState(false);
+  const prevCompletedRef = useRef(isCompleted);
+
+  const isWeekly = goal.frequency === 'weekly' && goal.weeklyTarget;
+
+  useEffect(() => {
+    if (isCompleted && !prevCompletedRef.current) {
+      setIsPulsing(true);
+      setIsAnimatingCheck(true);
+      const pulseTimer = setTimeout(() => setIsPulsing(false), 400);
+      const animTimer = setTimeout(() => setIsAnimatingCheck(false), 50);
+      return () => {
+        clearTimeout(pulseTimer);
+        clearTimeout(animTimer);
+      };
+    }
+    prevCompletedRef.current = isCompleted;
+  }, [isCompleted]);
+
+  return (
+    <button
+      onClick={onToggle}
+      className="shrink-0 w-[120px] h-[179px] bg-[#1e1d1d] first:rounded-l-xl last:rounded-r-xl overflow-hidden flex flex-col items-center justify-between py-6 px-3 transition-transform active:scale-[0.97] relative"
+    >
+      {/* Weekly progress label */}
+      {isWeekly && (
+        <span className="absolute top-2 right-2 text-white/60 text-xs font-medium">
+          {weeklyProgress ?? 0}/{goal.weeklyTarget}
+        </span>
+      )}
+      <GoalCardIcon 
+        completed={isCompleted} 
+        isPulsing={isPulsing} 
+        isAnimatingCheck={isAnimatingCheck} 
+        size={48} 
+      />
+      <p className="text-white text-sm font-medium tracking-[-0.4px] text-center leading-tight mt-auto">
+        {goal.title}
+      </p>
+    </button>
+  );
+}
+
+// Animated progress ring component
+function ProgressRing({ 
+  progress, 
+  size = 48, 
+  strokeWidth = 3 
+}: { 
+  progress: number; 
+  size?: number; 
+  strokeWidth?: number;
+}) {
+  const [animatedProgress, setAnimatedProgress] = useState(0);
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const offset = circumference - (animatedProgress / 100) * circumference;
+
+  useEffect(() => {
+    const duration = 500;
+    const startProgress = animatedProgress;
+    const endProgress = progress;
+    const startTime = Date.now();
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = startProgress + (endProgress - startProgress) * eased;
+      
+      setAnimatedProgress(current);
+      
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [progress]);
+  
+  return (
+    <svg
+      width={size}
+      height={size}
+      className="absolute -rotate-90"
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="rgba(255,255,255,0.08)"
+        strokeWidth={strokeWidth}
+      />
+      {animatedProgress > 0 && (
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="var(--green)"
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
+  );
+}
+
+// Format Firestore timestamp to time string
+const formatTime = (date: TimestampOrDate): string => {
+  if (!date) return 'waiting';
+  try {
+    let dateObj: Date;
+    if (typeof date === 'object' && 'seconds' in date) {
+      dateObj = new Date(date.seconds * 1000);
+    } else if (date instanceof Date) {
+      dateObj = date;
+    } else {
+      dateObj = new Date(date);
+    }
+    if (isNaN(dateObj.getTime())) return 'waiting';
+    return dateObj.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return 'waiting';
+  }
 };
+
+// Family member row component
+function FamilyMemberRow({
+  member,
+  isCurrentUser,
+  onClick,
+}: {
+  member: FamilyMemberStatus;
+  isCurrentUser: boolean;
+  onClick: () => void;
+}) {
+  const isComplete = member.goalsCompleted === member.totalGoals && member.totalGoals > 0;
+  const isPartial = member.goalsCompleted > 0 && !isComplete;
+  const progress = member.totalGoals > 0 
+    ? Math.round((member.goalsCompleted / member.totalGoals) * 100) 
+    : 0;
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full bg-[#1e1d1d] rounded-xl p-4 flex items-center gap-4 transition-transform active:scale-[0.98]"
+    >
+      {/* Avatar */}
+      <div className="w-12 h-12 rounded-full overflow-hidden bg-[var(--gray-card)] shrink-0">
+        {(member.customPhotoURL || member.photoURL) ? (
+          <Image
+            src={member.customPhotoURL || member.photoURL || ''}
+            alt={member.displayName}
+            width={48}
+            height={48}
+            className="object-cover w-full h-full"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-lg text-white font-medium">
+            {member.displayName.charAt(0).toUpperCase()}
+          </div>
+        )}
+      </div>
+
+      {/* Name */}
+      <span className="text-white font-bold text-base flex-1 text-left tracking-[-0.4px]">
+        {member.displayName}
+        {isCurrentUser && <span className="text-[var(--gray-text)] font-normal"> (You)</span>}
+      </span>
+
+      {/* Completion text */}
+      <div className="text-right shrink-0 mr-1">
+        <p className="text-white text-sm font-medium tracking-[-0.4px]">
+          {isComplete ? 'Complete' : 'Incomplete'}
+        </p>
+        <p className="text-[var(--gray-text)] text-sm italic tracking-[-0.4px]">
+          {isComplete ? formatTime(member.completedAt) : 'waiting'}
+        </p>
+      </div>
+
+      {/* Status Icon with Progress Ring */}
+      <div className="relative w-12 h-12 shrink-0">
+        {/* Progress ring - only show when partial */}
+        {isPartial && (
+          <ProgressRing progress={progress} size={48} strokeWidth={3} />
+        )}
+        
+        {/* Inner circle with icon */}
+        <div
+          className={`absolute inset-[3px] rounded-full flex items-center justify-center
+            ${isComplete ? 'bg-[var(--green)]' : 'bg-[var(--gray-card)]'}`}
+        >
+          {isComplete ? (
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5 text-[var(--gray-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+            </svg>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
 
 export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [familyMembers, setFamilyMembers] = useState<FamilyMemberStatus[]>([]);
+  const [currentUserGoals, setCurrentUserGoals] = useState<Goal[]>([]);
+  const [todayCheckIns, setTodayCheckIns] = useState<DailyCheckIn[]>([]);
+  const [weekCheckIns, setWeekCheckIns] = useState<DailyCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
 
   const today = new Date();
-  const dateString = today.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  const startOfYear = new Date(today.getFullYear(), 0, 1);
+  const diffTime = today.getTime() - startOfYear.getTime();
+  const dayOfYear = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
-  // Get today's date in YYYY-MM-DD format (local timezone)
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-  // Swipe handlers for navigation
-  const swipeHandlers = useSwipeable({
-    onSwipedLeft: () => router.push('/overview'),
-    preventScrollOnSwipe: true,
-    trackMouse: false,
-  });
+  // Get today's date key
+  const todayKey = getDateKey(today);
 
   useEffect(() => {
     if (authLoading) return;
-    
+
     if (!user) {
       router.replace('/');
       return;
@@ -94,16 +364,16 @@ export default function HomePage() {
       return;
     }
 
-    // Listen to family members and their check-ins
     let unsubscribeCheckIns: (() => void) | null = null;
+    let unsubscribeFamilyGoals: (() => void) | null = null;
+    let unsubscribeUserCheckIns: (() => void) | null = null;
     const userUnsubscribes: (() => void)[] = [];
 
     const fetchFamilyData = async () => {
       try {
-        // Get family document
         const familyRef = doc(db, 'families', user.familyId!);
         const familySnap = await getDoc(familyRef);
-        
+
         if (!familySnap.exists()) {
           setLoading(false);
           return;
@@ -112,71 +382,38 @@ export default function HomePage() {
         const familyData = familySnap.data();
         const memberIds = familyData.members as string[];
 
-        // Fetch all goals for the family
-        const goalsQuery = query(
-          collection(db, 'goals'),
-          where('familyId', '==', user.familyId),
-          where('isActive', '==', true)
-        );
-        const goalsSnapshot = await getDocs(goalsQuery);
-        const allGoals = goalsSnapshot.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        })) as Goal[];
-
-        // Get this week's dates for weekly goal calculation
-        const weekDates = getWeekDates(today);
-
-        // Store member data and check-ins that update in real-time
         const memberDataMap = new Map<string, User>();
         let latestCheckIns: DailyCheckIn[] = [];
+        let allGoals: Goal[] = [];
 
-        // Function to rebuild and update family members
         const rebuildMembersData = () => {
-          const todayCheckIns = latestCheckIns.filter(c => c.date === todayKey);
-          const weekCheckIns = latestCheckIns.filter(c => weekDates.includes(c.date));
+          const todayCheckInsData = latestCheckIns.filter(c => c.date === todayKey);
           const membersData: FamilyMemberStatus[] = [];
 
           for (const memberId of memberIds) {
             const memberData = memberDataMap.get(memberId);
-            
+
             if (memberData) {
               const memberGoals = allGoals.filter(g => g.userId === memberId);
-              
-              let dailyGoalsComplete = 0;
-              let dailyGoalsTotal = 0;
-              let weeklyGoalsComplete = 0;
-              let weeklyGoalsTotal = 0;
-              
-              const daysRemaining = getDaysRemainingInWeek(today);
-              
+
+              // For the home page, family progress is based on today:
+              // count a goal as "done" if it has a completed check-in today,
+              // regardless of daily vs weekly frequency.
+              let goalsCompletedToday = 0;
+
               memberGoals.forEach(goal => {
-                const frequency = goal.frequency || 'daily';
-                if (frequency === 'daily') {
-                  dailyGoalsTotal++;
-                  const isCompleted = todayCheckIns.some(
-                    c => c.userId === memberId && c.goalId === goal.id && c.completed
-                  );
-                  if (isCompleted) dailyGoalsComplete++;
-                } else if (frequency === 'weekly') {
-                  weeklyGoalsTotal++;
-                  const weekCount = weekCheckIns.filter(
-                    c => c.userId === memberId && c.goalId === goal.id && c.completed
-                  ).length;
-                  const target = goal.weeklyTarget || 1;
-                  const stillNeeded = target - weekCount;
-                  
-                  if (weekCount >= target || stillNeeded <= daysRemaining) {
-                    weeklyGoalsComplete++;
-                  }
-                }
+                const isCompletedToday = todayCheckInsData.some(
+                  c => c.userId === memberId && c.goalId === goal.id && c.completed
+                );
+                if (isCompletedToday) goalsCompletedToday++;
               });
-              
-              const totalGoals = dailyGoalsTotal + weeklyGoalsTotal;
-              const completedGoals = dailyGoalsComplete + weeklyGoalsComplete;
+
+              const totalGoals = memberGoals.length;
+              const completedGoals = goalsCompletedToday;
               const isComplete = totalGoals > 0 && completedGoals === totalGoals;
 
-              const memberTodayCompletedCheckIns = todayCheckIns.filter(
+
+              const memberTodayCompletedCheckIns = todayCheckInsData.filter(
                 c => c.userId === memberId && c.completed && c.completedAt
               );
               const latestCompletion = memberTodayCompletedCheckIns.length > 0
@@ -219,7 +456,6 @@ export default function HomePage() {
           const unsubscribe = onSnapshot(memberRef, (memberSnap) => {
             if (memberSnap.exists()) {
               memberDataMap.set(memberId, { uid: memberId, ...memberSnap.data() } as User);
-              // Rebuild members data when any user document changes
               if (memberDataMap.size === memberIds.length) {
                 rebuildMembersData();
               }
@@ -227,6 +463,30 @@ export default function HomePage() {
           });
           userUnsubscribes.push(unsubscribe);
         }
+
+        // Listen to ALL family goals (real-time so family progress stays in sync)
+        const goalsQuery = query(
+          collection(db, 'goals'),
+          where('familyId', '==', user.familyId),
+          where('isActive', '==', true)
+        );
+
+        unsubscribeFamilyGoals = onSnapshot(goalsQuery, (goalsSnap) => {
+          allGoals = goalsSnap.docs.map(d => ({
+            id: d.id,
+            ...d.data()
+          })) as Goal[];
+
+          // Also update currentUserGoals from the same source
+          const userGoals = allGoals
+            .filter(g => g.userId === user.uid)
+            .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+          setCurrentUserGoals(userGoals);
+
+          if (memberDataMap.size === memberIds.length) {
+            rebuildMembersData();
+          }
+        });
 
         // Listen to check-ins
         const checkInsQuery = query(
@@ -239,8 +499,19 @@ export default function HomePage() {
             id: d.id,
             ...d.data()
           })) as DailyCheckIn[];
-          
-          // Rebuild members data when check-ins change
+
+          // Also update todayCheckIns and weekCheckIns for current user's goal cards
+          const userTodayCheckIns = latestCheckIns.filter(
+            c => c.userId === user.uid && c.date === todayKey
+          );
+          setTodayCheckIns(userTodayCheckIns);
+
+          const weekDates = getWeekDates(today);
+          const userWeekCheckIns = latestCheckIns.filter(
+            c => c.userId === user.uid && weekDates.includes(c.date) && c.completed
+          );
+          setWeekCheckIns(userWeekCheckIns);
+
           if (memberDataMap.size === memberIds.length) {
             rebuildMembersData();
           }
@@ -256,11 +527,40 @@ export default function HomePage() {
 
     return () => {
       if (unsubscribeCheckIns) unsubscribeCheckIns();
+      if (unsubscribeFamilyGoals) unsubscribeFamilyGoals();
       userUnsubscribes.forEach(unsub => unsub());
     };
   }, [user, authLoading, router, todayKey]);
 
-  const incompleteCount = familyMembers.filter(m => !m.isComplete).length;
+  const handleToggleGoal = async (goalId: string) => {
+    if (!user?.familyId) return;
+
+    const existingCheckIn = todayCheckIns.find(c => c.goalId === goalId);
+    const goal = currentUserGoals.find(g => g.id === goalId);
+
+    try {
+      if (existingCheckIn) {
+        const checkInRef = doc(db, 'checkIns', existingCheckIn.id);
+        await updateDoc(checkInRef, {
+          completed: !existingCheckIn.completed,
+          completedAt: !existingCheckIn.completed ? serverTimestamp() : null,
+        });
+      } else {
+        await addDoc(collection(db, 'checkIns'), {
+          goalId,
+          goalTitle: goal?.title || '',
+          userId: user.uid,
+          userName: user.displayName,
+          familyId: user.familyId,
+          date: todayKey,
+          completed: true,
+          completedAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling goal:', error);
+    }
+  };
 
   if (authLoading || loading) {
     return (
@@ -271,58 +571,97 @@ export default function HomePage() {
   }
 
   return (
-    <div {...swipeHandlers} className="min-h-screen bg-black px-4 pt-16 pb-8">
+    <div className="min-h-screen bg-black px-4 pt-16 pb-8">
       {/* Header */}
-      <header className="mb-8">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-white">{dateString}</h1>
-            <p className="text-[var(--gray-text)] mt-1">
-              {incompleteCount === 0 
-                ? 'Everyone is complete!' 
-                : `${incompleteCount} ${incompleteCount === 1 ? 'person' : 'people'} left`}
-            </p>
-          </div>
-          
-          {/* Menu Button */}
+      <header className="flex items-center justify-between mb-8">
+        <h1 className="text-[32px] font-[800] text-white leading-none">
+          Day {dayOfYear}
+        </h1>
+        <div className="flex items-center gap-3">
+          {/* Profile icon - navigates to your stats (exact Figma SVG) */}
           <button
-            onClick={() => router.push('/settings')}
-            className="w-12 h-12 rounded-full bg-[var(--gray-dark)] flex items-center justify-center"
+            onClick={() => router.push('/profile')}
+            className="w-6 h-6 flex items-center justify-center"
           >
-            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="12" cy="19" r="2" />
+            <svg width="20" height="22" viewBox="0 0 17.5 21.5" fill="none">
+              <path d="M0.75 17.55C0.75 14.899 2.89903 12.75 5.55 12.75H11.95C14.601 12.75 16.75 14.899 16.75 17.55C16.75 19.3173 15.3173 20.75 13.55 20.75H3.95C2.18269 20.75 0.75 19.3173 0.75 17.55Z" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12.75 4.75C12.75 6.95914 10.9591 8.75 8.75 8.75C6.54086 8.75 4.75 6.95914 4.75 4.75C4.75 2.54086 6.54086 0.75 8.75 0.75C10.9591 0.75 12.75 2.54086 12.75 4.75Z" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          {/* Bar chart icon - navigates to overview (exact Figma SVG) */}
+          <button
+            onClick={() => router.push('/overview')}
+            className="w-6 h-6 flex items-center justify-center"
+          >
+            <svg width="22" height="22" viewBox="0 0 21.5 21.5" fill="none">
+              <path d="M5.75 6.75V14.75M10.75 9.75V14.75M15.75 7.75L15.75 14.75M10.35 20.75H11.15C14.5103 20.75 16.1905 20.75 17.4739 20.096C18.6029 19.5208 19.5208 18.6029 20.096 17.4739C20.75 16.1905 20.75 14.5103 20.75 11.15V10.35C20.75 6.98969 20.75 5.30953 20.096 4.02606C19.5208 2.89708 18.6029 1.9792 17.4739 1.40396C16.1905 0.75 14.5103 0.75 11.15 0.75H10.35C6.98969 0.75 5.30953 0.75 4.02606 1.40396C2.89708 1.9792 1.9792 2.89708 1.40396 4.02606C0.75 5.30953 0.75 6.98969 0.75 10.35V11.15C0.75 14.5103 0.75 16.1905 1.40396 17.4739C1.9792 18.6029 2.89708 19.5208 4.02606 20.096C5.30953 20.75 6.98969 20.75 10.35 20.75Z" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
         </div>
       </header>
 
-      {/* Family Member Grid */}
-      <div className="grid grid-cols-2 gap-3">
-        {familyMembers.map((member) => (
-          <PersonCard
-            key={member.uid}
-            member={member}
-            isCurrentUser={member.uid === user?.uid}
-            onClick={() => router.push(`/member/${member.uid}`)}
-          />
-        ))}
-      </div>
+      {/* Your Goals Section */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold text-white/80 tracking-[-0.4px]">Your Goals</h2>
+          <button
+            onClick={() => router.push('/goals/edit')}
+            className="w-6 h-6 flex items-center justify-center"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+              <circle cx="6" cy="12" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="18" cy="12" r="2" />
+            </svg>
+          </button>
+        </div>
 
-      {/* Overview Button - Fixed at bottom right */}
-      <div className="fixed bottom-8 right-4">
-        <button 
-          onClick={() => router.push('/overview')}
-          className="flex items-center gap-2 px-5 py-3 border border-white/20 rounded-full 
-                     text-white font-medium hover:bg-white/10 transition-colors"
-        >
-          Overview
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-          </svg>
-        </button>
-      </div>
+        {/* Horizontally scrollable goal cards */}
+        <div className="flex gap-[5px] overflow-x-auto no-scrollbar -mx-4 px-4">
+          {currentUserGoals.length > 0 ? (
+            currentUserGoals.map((goal) => {
+              const isCompleted = todayCheckIns.some(c => c.goalId === goal.id && c.completed);
+              const weeklyProgress = goal.frequency === 'weekly'
+                ? weekCheckIns.filter(c => c.goalId === goal.id).length
+                : undefined;
+              return (
+                <GoalCard
+                  key={goal.id}
+                  goal={goal}
+                  isCompleted={isCompleted}
+                  onToggle={() => handleToggleGoal(goal.id)}
+                  weeklyProgress={weeklyProgress}
+                />
+              );
+            })
+          ) : (
+            <button
+              onClick={() => router.push('/goals/edit')}
+              className="shrink-0 w-[120px] h-[179px] bg-[#1e1d1d] rounded-xl overflow-hidden flex flex-col items-center justify-center px-3"
+            >
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeOpacity="0.4" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              <p className="text-white/40 text-sm font-medium mt-2">Add goals</p>
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Family Progress Section */}
+      <section>
+        <h2 className="text-base font-bold text-white/80 tracking-[-0.4px] mb-3">Family Progress</h2>
+        <div className="flex flex-col gap-4">
+          {familyMembers.map((member) => (
+            <FamilyMemberRow
+              key={member.uid}
+              member={member}
+              isCurrentUser={member.uid === user?.uid}
+              onClick={() => router.push(`/member/${member.uid}`)}
+            />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

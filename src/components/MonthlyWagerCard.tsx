@@ -1,16 +1,10 @@
 'use client';
 
-import { useMemo, useEffect, useRef, useState } from 'react';
+import { useMemo } from 'react';
 
-// Wager colors in rotation order (using hex values directly for reliability)
-const WAGER_COLORS = [
-  '#2B9CFF', // blue
-  '#15B347', // green
-  '#FF3939', // red
-  '#FBFF28', // yellow
-];
-
-const INCOMPLETE_COLOR = '#202020';
+const COMPLETE_COLOR = '#15B347';
+const INCOMPLETE_COLOR = '#333';
+const FUTURE_COLOR = 'rgba(255, 255, 255, 0.2)';
 
 // Get today's date key
 const getTodayKey = (): string => {
@@ -21,7 +15,6 @@ const getTodayKey = (): string => {
 interface DayData {
   date: string; // YYYY-MM-DD
   status: 'complete' | 'partial' | 'none' | 'future';
-  isLastDay: boolean;
   isToday: boolean;
 }
 
@@ -33,7 +26,7 @@ interface MonthlyWagerCardProps {
     photoURL: string | null;
   };
   dayStatuses: Map<string, 'complete' | 'partial' | 'none' | 'future'>;
-  colorIndex: number; // 0-3 for blue, green, red, yellow
+  colorIndex: number; // kept for API compat, unused now
   isCurrentMonth?: boolean;
 }
 
@@ -42,92 +35,25 @@ export default function MonthlyWagerCard({
   completionRate,
   assignedUser,
   dayStatuses,
-  colorIndex,
-  isCurrentMonth = false,
 }: MonthlyWagerCardProps) {
-  const color = WAGER_COLORS[colorIndex % 4];
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  
   const todayKey = getTodayKey();
-
-  // Scroll-based wiggle animation with smooth interpolation
-  useEffect(() => {
-    let lastScrollTop = 0;
-    let targetProgress = 0;
-    let currentProgress = 0;
-    let animationFrameId: number;
-    
-    // Smooth animation loop that interpolates towards target
-    const animate = () => {
-      // Lerp towards target (smooth interpolation)
-      const diff = targetProgress - currentProgress;
-      currentProgress += diff * 0.15; // Adjust this for smoothness (lower = smoother)
-      
-      // Decay target towards 0
-      targetProgress *= 0.92;
-      
-      // Only update state if there's visible change
-      if (Math.abs(currentProgress) > 0.001 || Math.abs(targetProgress) > 0.001) {
-        setScrollProgress(currentProgress);
-        animationFrameId = requestAnimationFrame(animate);
-      } else {
-        setScrollProgress(0);
-      }
-    };
-
-    const handleScroll = (e: Event) => {
-      const target = e.target as HTMLElement;
-      const currentScrollTop = target.scrollTop || window.scrollY;
-      const scrollDelta = currentScrollTop - lastScrollTop;
-      
-      // Add to target progress (clamped)
-      targetProgress = Math.max(-1, Math.min(1, targetProgress + scrollDelta / 50));
-      
-      lastScrollTop = currentScrollTop;
-      
-      // Start animation loop if not already running
-      if (!animationFrameId) {
-        animationFrameId = requestAnimationFrame(animate);
-      }
-    };
-
-    // Find the main snap scroll container
-    const scrollContainer = cardRef.current?.closest('.snap-y');
-    
-    if (scrollContainer) {
-      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-      return () => {
-        scrollContainer.removeEventListener('scroll', handleScroll);
-        cancelAnimationFrame(animationFrameId);
-      };
-    }
-
-    // Fallback to window scroll
-    window.addEventListener('scroll', handleScroll as EventListener, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll as EventListener);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, []);
 
   // Parse month to get days
   const days = useMemo(() => {
     const [year, monthNum] = month.split('-').map(Number);
     const daysInMonth = new Date(year, monthNum, 0).getDate();
     const result: DayData[] = [];
-    
+
     for (let day = 1; day <= daysInMonth; day++) {
       const dateKey = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const status = dayStatuses.get(dateKey) || 'future';
       result.push({
         date: dateKey,
         status,
-        isLastDay: day === daysInMonth,
         isToday: dateKey === todayKey,
       });
     }
-    
+
     return result;
   }, [month, dayStatuses, todayKey]);
 
@@ -138,102 +64,25 @@ export default function MonthlyWagerCard({
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }, [month]);
 
-  // Get shape for a day (alternating circle/square based on index)
-  const getShapeStyle = (index: number, status: DayData['status'], isToday: boolean): React.CSSProperties => {
-    const baseStyle: React.CSSProperties = {};
-
-    // Color based on status
-    if (status === 'complete') {
-      baseStyle.backgroundColor = color;
-    } else if (status === 'partial') {
-      baseStyle.backgroundColor = color;
-      baseStyle.opacity = 0.5;
-    } else {
-      baseStyle.backgroundColor = INCOMPLETE_COLOR;
-    }
-
-    // Shape: alternate between circle (even) and square (odd)
-    if (index % 2 === 0) {
-      baseStyle.borderRadius = '50%';
-    } else {
-      baseStyle.borderRadius = '0';
-    }
-
-    // Scroll-based wiggle animation
-    // Each shape has a slightly different rotation based on its position
-    const row = Math.floor(index / 7);
-    const col = index % 7;
-    const phaseOffset = (row + col) * 0.5; // Creates a wave effect
-    const rotationAmount = scrollProgress * 25 * Math.sin(phaseOffset + 1); // Max 25 degrees rotation
-    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.15; // More noticeable scale on scroll
-    
-    baseStyle.transform = `rotate(${rotationAmount}deg) scale(${scaleAmount})`;
-
-    // Pulse animation for today
-    if (isToday) {
-      baseStyle.animation = 'pulse-dot 1.8s ease-in-out infinite';
-    }
-
-    return baseStyle;
-  };
-
-  // SVG Star component for last day (8-pointed star with 66% inner ratio)
-  const StarShape = ({ status, isToday, index }: { status: DayData['status']; isToday: boolean; index: number }) => {
-    let fillColor = INCOMPLETE_COLOR;
-    let opacity = 1;
-    
-    if (status === 'complete') {
-      fillColor = color;
-    } else if (status === 'partial') {
-      fillColor = color;
-      opacity = 0.5;
-    }
-
-    // Scroll-based wiggle animation for star
-    const row = Math.floor(index / 7);
-    const col = index % 7;
-    const phaseOffset = (row + col) * 0.5;
-    const rotationAmount = scrollProgress * 30 * Math.sin(phaseOffset + 1); // Stars rotate more
-    const scaleAmount = 1 + Math.abs(scrollProgress) * 0.2;
-
-    const starStyle: React.CSSProperties = {
-      opacity,
-      transform: `rotate(${rotationAmount}deg) scale(${scaleAmount})`,
-    };
-
-    // Pulse animation for today
-    if (isToday) {
-      starStyle.animation = 'pulse-dot 1.8s ease-in-out infinite';
-    }
-
-    // Exact star path from Figma with 66% point ratio
-    return (
-      <svg 
-        width="25.5" 
-        height="25.5" 
-        viewBox="0 0 25.4878 25.4878" 
-        fill="none"
-        style={starStyle}
-      >
-        <path
-          d="M12.7439 0L15.9626 4.97317L21.7552 3.7326L20.5146 9.52516L25.4878 12.7439L20.5146 15.9626L21.7552 21.7552L15.9626 20.5146L12.7439 25.4878L9.52516 20.5146L3.7326 21.7552L4.97317 15.9626L0 12.7439L4.97317 9.52516L3.7326 3.7326L9.52516 4.97317L12.7439 0Z"
-          fill={fillColor}
-        />
-      </svg>
-    );
+  // Get dot color based on status
+  const getDotColor = (status: DayData['status']): string => {
+    if (status === 'complete') return COMPLETE_COLOR;
+    if (status === 'future') return FUTURE_COLOR;
+    // partial and none are both "past incomplete"
+    return INCOMPLETE_COLOR;
   };
 
   return (
-    <div ref={cardRef} className="flex gap-4 items-start">
+    <div className="flex items-start justify-between pr-4">
       {/* Left side - Stats */}
-      <div className="flex flex-col min-w-[100px]">
-        <p 
+      <div className="flex flex-col shrink-0">
+        <p
           className="text-[30px] font-bold tracking-[-0.4px]"
           style={{ color: 'rgba(255, 255, 255, 0.8)' }}
         >
           {completionRate}%
         </p>
-        <p 
+        <p
           className="text-[16px] font-semibold tracking-[-0.4px]"
           style={{ color: 'rgba(255, 255, 255, 0.6)' }}
         >
@@ -248,9 +97,8 @@ export default function MonthlyWagerCard({
               className="w-6 h-6 rounded-full object-cover"
             />
           ) : (
-            <div 
-              className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
-              style={{ backgroundColor: color }}
+            <div
+              className="w-6 h-6 rounded-full bg-[#333] flex items-center justify-center text-xs font-medium text-white"
             >
               {assignedUser.displayName.charAt(0).toUpperCase()}
             </div>
@@ -258,25 +106,24 @@ export default function MonthlyWagerCard({
         </div>
       </div>
 
-      {/* Right side - Grid */}
-      <div 
+      {/* Right side - Dot Grid (7 columns, all circles) */}
+      <div
         className="grid gap-[5px]"
-        style={{ gridTemplateColumns: 'repeat(7, 25.5px)' }}
+        style={{ gridTemplateColumns: 'repeat(7, 14px)' }}
       >
-        {days.map((day, index) => (
-          <div 
-            key={day.date} 
-            className="w-[25.5px] h-[25.5px]"
-          >
-            {day.isLastDay ? (
-              <StarShape status={day.status} isToday={day.isToday} index={index} />
-            ) : (
-              <div 
-                className="w-full h-full"
-                style={getShapeStyle(index, day.status, day.isToday)} 
-              />
-            )}
-          </div>
+        {days.map((day) => (
+          <div
+            key={day.date}
+            className="w-[14px] h-[14px] rounded-full"
+            style={{
+              backgroundColor: getDotColor(day.status),
+              animation: day.isToday && day.status === 'complete'
+                ? 'pulse-dot 1.8s ease-in-out infinite'
+                : day.isToday
+                  ? 'pulse-dot 1.8s ease-in-out infinite'
+                  : undefined,
+            }}
+          />
         ))}
       </div>
     </div>
