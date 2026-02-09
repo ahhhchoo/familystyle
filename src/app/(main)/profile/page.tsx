@@ -2,11 +2,18 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 
-import { Goal, DailyCheckIn } from '@/types';
+import { Goal, DailyCheckIn, Family } from '@/types';
+
+// Helper: ordinal suffix (1st, 2nd, 3rd, 4th, ...)
+function getOrdinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 type DayStatus = 'complete' | 'partial' | 'none' | 'future';
 
@@ -67,6 +74,9 @@ export default function ProfilePage() {
 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [allCheckIns, setAllCheckIns] = useState<DailyCheckIn[]>([]);
+  const [familyMemberIds, setFamilyMemberIds] = useState<string[]>([]);
+  const [familyGoals, setFamilyGoals] = useState<Goal[]>([]);
+  const [familyCheckIns, setFamilyCheckIns] = useState<DailyCheckIn[]>([]);
   const [loading, setLoading] = useState(true);
 
   const today = new Date();
@@ -83,40 +93,83 @@ export default function ProfilePage() {
       return;
     }
 
-    // Listen to current user's goals
-    const goalsQuery = query(
-      collection(db, 'goals'),
-      where('userId', '==', user.uid),
-      where('isActive', '==', true)
-    );
+    let unsubscribeGoals: (() => void) | null = null;
+    let unsubscribeAllCheckIns: (() => void) | null = null;
+    let unsubscribeFamilyGoals: (() => void) | null = null;
+    let unsubscribeFamilyCheckIns: (() => void) | null = null;
 
-    const unsubscribeGoals = onSnapshot(goalsQuery, (snapshot) => {
-      const goalsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Goal[];
-      goalsData.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-      setGoals(goalsData);
-    });
+    const setup = async () => {
+      // Listen to current user's goals
+      const goalsQuery = query(
+        collection(db, 'goals'),
+        where('userId', '==', user.uid),
+        where('isActive', '==', true)
+      );
 
-    // Listen to all check-ins for this user
-    const allCheckInsQuery = query(
-      collection(db, 'checkIns'),
-      where('userId', '==', user.uid)
-    );
+      unsubscribeGoals = onSnapshot(goalsQuery, (snapshot) => {
+        const goalsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Goal[];
+        goalsData.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+        setGoals(goalsData);
+      });
 
-    const unsubscribeAllCheckIns = onSnapshot(allCheckInsQuery, (snapshot) => {
-      const checkInsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as DailyCheckIn[];
-      setAllCheckIns(checkInsData);
-      setLoading(false);
-    });
+      // Listen to all check-ins for this user
+      const allCheckInsQuery = query(
+        collection(db, 'checkIns'),
+        where('userId', '==', user.uid)
+      );
+
+      unsubscribeAllCheckIns = onSnapshot(allCheckInsQuery, (snapshot) => {
+        const checkInsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as DailyCheckIn[];
+        setAllCheckIns(checkInsData);
+        setLoading(false);
+      });
+
+      // Fetch family members for ranking
+      if (user.familyId) {
+        const familyRef = doc(db, 'families', user.familyId);
+        const familySnap = await getDoc(familyRef);
+        if (familySnap.exists()) {
+          const familyData = familySnap.data() as Family;
+          const memberIds = familyData.members || [];
+          setFamilyMemberIds(memberIds);
+
+          // Listen to all family goals
+          const familyGoalsQuery = query(
+            collection(db, 'goals'),
+            where('familyId', '==', user.familyId),
+            where('isActive', '==', true)
+          );
+
+          unsubscribeFamilyGoals = onSnapshot(familyGoalsQuery, (snapshot) => {
+            setFamilyGoals(snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Goal[]);
+          });
+
+          // Listen to all family check-ins
+          const familyCheckInsQuery = query(
+            collection(db, 'checkIns'),
+            where('familyId', '==', user.familyId)
+          );
+
+          unsubscribeFamilyCheckIns = onSnapshot(familyCheckInsQuery, (snapshot) => {
+            setFamilyCheckIns(snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as DailyCheckIn[]);
+          });
+        }
+      }
+    };
+
+    setup();
 
     return () => {
-      unsubscribeGoals();
-      unsubscribeAllCheckIns();
+      if (unsubscribeGoals) unsubscribeGoals();
+      if (unsubscribeAllCheckIns) unsubscribeAllCheckIns();
+      if (unsubscribeFamilyGoals) unsubscribeFamilyGoals();
+      if (unsubscribeFamilyCheckIns) unsubscribeFamilyCheckIns();
     };
   }, [user, authLoading, router]);
 
@@ -164,6 +217,45 @@ export default function ProfilePage() {
 
     return statuses;
   }, [allCheckIns, goals, totalDays, todayKey, year]);
+
+  // Calculate total completion rate (complete days / total past days)
+  const startOfYear = new Date(year, 0, 1);
+  const dayOfYear = Math.floor((today.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const completedDays = Array.from(dayStatuses.values()).filter(s => s === 'complete').length;
+  const totalCompletionRate = dayOfYear > 0 ? Math.round((completedDays / dayOfYear) * 100) : 0;
+
+  // Calculate ranking among family members
+  const familyRanking = useMemo(() => {
+    if (familyMemberIds.length === 0 || !user) return { rank: 0, total: 0 };
+
+    // For each member, compute their completion rate
+    const memberRates: { uid: string; rate: number }[] = familyMemberIds.map(memberId => {
+      const memberGoals = familyGoals.filter(g => g.userId === memberId);
+      if (memberGoals.length === 0) return { uid: memberId, rate: 0 };
+
+      let memberCompleteDays = 0;
+      let memberTotalDays = 0;
+
+      for (let i = 0; i < totalDays; i++) {
+        const date = new Date(year, 0, i + 1);
+        const dateKey = getDateKey(date);
+        if (dateKey > todayKey) break;
+
+        memberTotalDays++;
+        const dayCheckIns = familyCheckIns.filter(c => c.date === dateKey && c.userId === memberId && c.completed);
+        const allGoalsComplete = memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
+        if (allGoalsComplete) memberCompleteDays++;
+      }
+
+      return { uid: memberId, rate: memberTotalDays > 0 ? memberCompleteDays / memberTotalDays : 0 };
+    });
+
+    // Sort descending by rate
+    memberRates.sort((a, b) => b.rate - a.rate);
+
+    const rank = memberRates.findIndex(m => m.uid === user.uid) + 1;
+    return { rank, total: familyMemberIds.length };
+  }, [familyMemberIds, familyGoals, familyCheckIns, totalDays, todayKey, year, user]);
 
   // Build weekly breakdown data (Sun-Sat weeks, most recent first)
   const weeksData = useMemo(() => {
@@ -260,9 +352,17 @@ export default function ProfilePage() {
         </button>
       </header>
 
-      <h1 className="text-[32px] font-[800] text-white leading-none mb-6">
+      <h1 className="text-[32px] font-[800] text-white leading-none mb-2">
         Your stats
       </h1>
+      <p className="text-base text-white/60 leading-snug">
+        Total completion rate: {totalCompletionRate}%
+      </p>
+      {familyRanking.rank > 0 && (
+        <p className="text-base text-white/60 leading-snug mb-6">
+          <span className="font-bold text-white">{getOrdinal(familyRanking.rank)}</span> place in your family
+        </p>
+      )}
 
       {/* Weeks */}
       <div className="space-y-6">
@@ -270,10 +370,10 @@ export default function ProfilePage() {
           <div key={week.weekNumber}>
             {/* Week label row */}
             <div className="flex items-center justify-between mb-2">
-              <p className="text-base font-bold italic text-white tracking-[-0.4px]">
+              <p className="text-base font-bold text-white tracking-[-0.4px]">
                 Week {week.weekNumber} - {week.completionRate}%
               </p>
-              <p className="text-base font-bold italic text-white/60 tracking-[-0.4px]">
+              <p className="text-base font-bold text-white/60 tracking-[-0.4px]">
                 {formatDateRange(week.startDate, week.endDate)}
               </p>
             </div>

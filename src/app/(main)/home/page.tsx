@@ -7,7 +7,7 @@ import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, addDoc, s
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 
-import { FamilyMemberStatus, DailyCheckIn, User, TimestampOrDate, Goal } from '@/types';
+import { FamilyMemberStatus, DailyCheckIn, User, TimestampOrDate, Goal, EmojiBadge } from '@/types';
 
 // Helper to convert Firestore timestamp to milliseconds
 const getTimeInMs = (timestamp: TimestampOrDate): number => {
@@ -49,6 +49,209 @@ const getWeekDates = (anyDateInWeek: Date): string[] => {
   }
   return dates;
 };
+
+// Helper: Get the Sunday-based week start for a given date (for last week comparison)
+const getSundayWeekStart = (date: Date): Date => {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay());
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Helper: Get consecutive streak of "all goals complete" days ending at a given date
+function getStreak(
+  memberId: string,
+  memberGoals: Goal[],
+  checkIns: DailyCheckIn[],
+  endDateKey: string,
+): number {
+  if (memberGoals.length === 0) return 0;
+  let streak = 0;
+  const [y, m, d] = endDateKey.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+
+  for (let i = 0; i < 365; i++) {
+    const dateKey = getDateKey(date);
+    const dayCheckIns = checkIns.filter(
+      c => c.date === dateKey && c.userId === memberId && c.completed
+    );
+    const allDone = memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id));
+    if (allDone) {
+      streak++;
+    } else {
+      break;
+    }
+    date.setDate(date.getDate() - 1);
+  }
+  return streak;
+}
+
+// Helper: count total complete days for a member in the year so far
+function getTotalCompleteDays(
+  memberId: string,
+  memberGoals: Goal[],
+  checkIns: DailyCheckIn[],
+  todayKey: string,
+): number {
+  if (memberGoals.length === 0) return 0;
+  let count = 0;
+  const year = new Date().getFullYear();
+  const date = new Date(year, 0, 1);
+
+  while (getDateKey(date) <= todayKey) {
+    const dateKey = getDateKey(date);
+    const dayCheckIns = checkIns.filter(
+      c => c.date === dateKey && c.userId === memberId && c.completed
+    );
+    if (memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
+      count++;
+    }
+    date.setDate(date.getDate() + 1);
+  }
+  return count;
+}
+
+// Helper: compute completion rate for a member during a specific date range
+function getCompletionRateForRange(
+  memberId: string,
+  memberGoals: Goal[],
+  checkIns: DailyCheckIn[],
+  startKey: string,
+  endKey: string,
+): number {
+  if (memberGoals.length === 0) return 0;
+  let completeDays = 0;
+  let totalDays = 0;
+  const [sy, sm, sd] = startKey.split('-').map(Number);
+  const date = new Date(sy, sm - 1, sd);
+
+  while (getDateKey(date) <= endKey) {
+    totalDays++;
+    const dateKey = getDateKey(date);
+    const dayCheckIns = checkIns.filter(
+      c => c.date === dateKey && c.userId === memberId && c.completed
+    );
+    if (memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
+      completeDays++;
+    }
+    date.setDate(date.getDate() + 1);
+  }
+  return totalDays > 0 ? completeDays / totalDays : 0;
+}
+
+// Compute the emoji badge for a family member (priority order)
+function computeEmojiBadge(
+  memberId: string,
+  memberGoals: Goal[],
+  allCheckIns: DailyCheckIn[],
+  allGoals: Goal[],
+  memberIds: string[],
+  todayKey: string,
+  isCompleteToday: boolean,
+): EmojiBadge {
+  // --- 1. Crown: #1 in family by total complete days ---
+  const memberCompleteDays = memberIds.map(mid => ({
+    uid: mid,
+    days: getTotalCompleteDays(mid, allGoals.filter(g => g.userId === mid), allCheckIns, todayKey),
+  }));
+  memberCompleteDays.sort((a, b) => b.days - a.days);
+  if (memberCompleteDays[0]?.uid === memberId && memberCompleteDays[0]?.days > 0) {
+    // Make sure it's not a tie with everyone
+    const topDays = memberCompleteDays[0].days;
+    const tiedCount = memberCompleteDays.filter(m => m.days === topDays).length;
+    if (tiedCount < memberIds.length) {
+      return '👑';
+    }
+  }
+
+  // --- 2. Lightning: 7+ day streak ---
+  const streak = getStreak(memberId, memberGoals, allCheckIns, todayKey);
+  if (streak >= 7) return '⚡';
+
+  // --- 3. Fire: 3+ day streak ---
+  if (streak >= 3) return '🔥';
+
+  // --- 4. Rank up: moved up vs last week ---
+  const thisWeekStart = getSundayWeekStart(new Date());
+  const lastWeekStart = new Date(thisWeekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const lastWeekEnd = new Date(thisWeekStart);
+  lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+
+  const lastWeekStartKey = getDateKey(lastWeekStart);
+  const lastWeekEndKey = getDateKey(lastWeekEnd);
+  const thisWeekStartKey = getDateKey(thisWeekStart);
+
+  // Only check rank-up if we have at least 1 day of data this week
+  if (thisWeekStartKey <= todayKey) {
+    const lastWeekRanks = memberIds.map(mid => ({
+      uid: mid,
+      rate: getCompletionRateForRange(mid, allGoals.filter(g => g.userId === mid), allCheckIns, lastWeekStartKey, lastWeekEndKey),
+    }));
+    lastWeekRanks.sort((a, b) => b.rate - a.rate);
+    const lastWeekRank = lastWeekRanks.findIndex(m => m.uid === memberId) + 1;
+
+    const thisWeekRanks = memberIds.map(mid => ({
+      uid: mid,
+      rate: getCompletionRateForRange(mid, allGoals.filter(g => g.userId === mid), allCheckIns, thisWeekStartKey, todayKey),
+    }));
+    thisWeekRanks.sort((a, b) => b.rate - a.rate);
+    const thisWeekRank = thisWeekRanks.findIndex(m => m.uid === memberId) + 1;
+
+    if (thisWeekRank < lastWeekRank) return '📈';
+  }
+
+  // --- 5. Trophy: 30+ total complete days ---
+  const totalComplete = memberCompleteDays.find(m => m.uid === memberId)?.days || 0;
+  if (totalComplete >= 30) return '🏆';
+
+  // --- 6. Star: perfect week so far (all days complete this week) ---
+  if (thisWeekStartKey <= todayKey) {
+    const [sy, sm, sd] = thisWeekStartKey.split('-').map(Number);
+    const weekDate = new Date(sy, sm - 1, sd);
+    let perfectWeek = true;
+    let hasDays = false;
+
+    while (getDateKey(weekDate) <= todayKey) {
+      hasDays = true;
+      const dateKey = getDateKey(weekDate);
+      const dayCheckIns = allCheckIns.filter(
+        c => c.date === dateKey && c.userId === memberId && c.completed
+      );
+      if (!memberGoals.every(g => dayCheckIns.some(c => c.goalId === g.id))) {
+        perfectWeek = false;
+        break;
+      }
+      weekDate.setDate(weekDate.getDate() + 1);
+    }
+
+    if (perfectWeek && hasDays && memberGoals.length > 0) return '🌟';
+  }
+
+  // --- 7. Bullseye: just completed all goals today ---
+  if (isCompleteToday) return '🎯';
+
+  // --- 8. Zzz: inactive 2+ days ---
+  if (memberGoals.length > 0) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dayBefore = new Date();
+    dayBefore.setDate(dayBefore.getDate() - 2);
+
+    const yesterdayCheckIns = allCheckIns.filter(
+      c => c.date === getDateKey(yesterday) && c.userId === memberId && c.completed
+    );
+    const dayBeforeCheckIns = allCheckIns.filter(
+      c => c.date === getDateKey(dayBefore) && c.userId === memberId && c.completed
+    );
+
+    if (yesterdayCheckIns.length === 0 && dayBeforeCheckIns.length === 0 && !isCompleteToday) {
+      return '💤';
+    }
+  }
+
+  return null;
+}
 
 
 
@@ -274,20 +477,27 @@ function FamilyMemberRow({
       onClick={onClick}
       className="w-full bg-[#1e1d1d] rounded-xl p-4 flex items-center gap-4 transition-transform active:scale-[0.98]"
     >
-      {/* Avatar */}
-      <div className="w-12 h-12 rounded-full overflow-hidden bg-[var(--gray-card)] shrink-0">
-        {(member.customPhotoURL || member.photoURL) ? (
-          <Image
-            src={member.customPhotoURL || member.photoURL || ''}
-            alt={member.displayName}
-            width={48}
-            height={48}
-            className="object-cover w-full h-full"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-lg text-white font-medium">
-            {member.displayName.charAt(0).toUpperCase()}
-          </div>
+      {/* Avatar with emoji badge */}
+      <div className="relative w-12 h-12 shrink-0">
+        <div className="w-12 h-12 rounded-full overflow-hidden bg-[var(--gray-card)]">
+          {(member.customPhotoURL || member.photoURL) ? (
+            <Image
+              src={member.customPhotoURL || member.photoURL || ''}
+              alt={member.displayName}
+              width={48}
+              height={48}
+              className="object-cover w-full h-full"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-lg text-white font-medium">
+              {member.displayName.charAt(0).toUpperCase()}
+            </div>
+          )}
+        </div>
+        {member.emojiBadge && (
+          <span className="absolute -bottom-1 -right-1 text-sm leading-none">
+            {member.emojiBadge}
+          </span>
         )}
       </div>
 
@@ -424,6 +634,16 @@ export default function HomePage() {
                   })
                 : null;
 
+              const emojiBadge = computeEmojiBadge(
+                memberId,
+                memberGoals,
+                latestCheckIns,
+                allGoals,
+                memberIds,
+                todayKey,
+                isComplete,
+              );
+
               membersData.push({
                 uid: memberId,
                 displayName: memberData.displayName,
@@ -433,6 +653,7 @@ export default function HomePage() {
                 completedAt: latestCompletion?.completedAt || null,
                 goalsCompleted: completedGoals,
                 totalGoals: totalGoals,
+                emojiBadge,
               });
             }
           }

@@ -52,6 +52,8 @@ export interface DailyCheckIn {
   completedAt: TimestampOrDate;
 }
 
+export type EmojiBadge = '👑' | '⚡' | '🔥' | '📈' | '🏆' | '🌟' | '🎯' | '💤' | null;
+
 export interface FamilyMemberStatus {
   uid: string;
   displayName: string;
@@ -61,6 +63,7 @@ export interface FamilyMemberStatus {
   completedAt: TimestampOrDate;
   goalsCompleted: number;
   totalGoals: number;
+  emojiBadge: EmojiBadge;
 }
 
 export interface MonthlyWager {
